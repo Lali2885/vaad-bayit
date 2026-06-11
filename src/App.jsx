@@ -624,7 +624,13 @@ export default function App() {
                             </td>
                             <td className="py-2">
                               {p.status === 'זכות'
-                                ? <span className="text-teal-600 font-semibold text-xs">זכות ✓</span>
+                                ? <div className="flex items-center gap-1">
+                                    <input type="number" value={p.paidAmount || 0} min={0}
+                                      onChange={e => updatePaymentPaid(p.id, e.target.value)}
+                                      onFocus={e => e.target.select()}
+                                      className="border border-teal-300 rounded px-2 py-1 text-xs w-16 focus:outline-none focus:ring-1 focus:ring-teal-400" />
+                                    <span className="text-xs text-teal-500">₪ זכות</span>
+                                  </div>
                                 : p.status === 'שולם'
                                 ? <span className="text-green-600 font-semibold text-xs">{p.amount.toLocaleString()}₪ ✓</span>
                                 : <div className="flex items-center gap-1">
