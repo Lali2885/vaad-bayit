@@ -168,7 +168,16 @@ export default function App() {
 
   useEffect(() => {
     if (!session) return;
-    setDataLoading(true);
+    const cacheKeyT = `vaad_tenants_${session.user.id}`;
+    const cacheKeyS = `vaad_settings_${session.user.id}`;
+    let hasCache = false;
+    try {
+      const ct = localStorage.getItem(cacheKeyT);
+      const cs = localStorage.getItem(cacheKeyS);
+      if (ct && cs) { setTenants(JSON.parse(ct)); setSettings(JSON.parse(cs)); hasCache = true; }
+    } catch (e) {}
+    if (!hasCache) setDataLoading(true);
+
     const { month, year } = getCurrentHebrewDate();
     const autoKey = `${month}-${year}`;
     const currentMonthIdx = TWELVE_MONTHS.indexOf(month);
@@ -213,18 +222,22 @@ export default function App() {
           .then(({ error }) => { if (error) setDbError(`שגיאת שמירה: ${error.message} (${error.code})`); });
       }
       setTenants(loadedTenants);
+      try { localStorage.setItem(cacheKeyT, JSON.stringify(loadedTenants)); } catch (e) {}
 
+      let loadedSettings;
       if (settingsRes.data) {
         const p = settingsRes.data.data;
         if (!p.managers) p.managers = [{ id: 1, name: '', phone: '', email: '', role: 'יו"ר הוועד' }];
         if (!p.templates) p.templates = INITIAL_SETTINGS.templates;
         if (!p.feeHistory) p.feeHistory = INITIAL_SETTINGS.feeHistory;
         if (!p.extraordinaryExpenses) p.extraordinaryExpenses = [];
-        setSettings({ ...INITIAL_SETTINGS, ...p });
+        loadedSettings = { ...INITIAL_SETTINGS, ...p };
       } else {
-        setSettings(INITIAL_SETTINGS);
+        loadedSettings = INITIAL_SETTINGS;
         supabase.from('app_settings').upsert({ user_id: session.user.id, data: INITIAL_SETTINGS });
       }
+      setSettings(loadedSettings);
+      try { localStorage.setItem(cacheKeyS, JSON.stringify(loadedSettings)); } catch (e) {}
       setDataLoading(false);
     });
   }, [session]);
@@ -236,6 +249,7 @@ export default function App() {
         .update({ data: tenants })
         .eq('user_id', session.user.id);
       if (error) console.error('שגיאת שמירת דיירים:', error);
+      else try { localStorage.setItem(`vaad_tenants_${session.user.id}`, JSON.stringify(tenants)); } catch (e) {}
     }, 800);
     return () => clearTimeout(t);
   }, [tenants, session]);
@@ -247,6 +261,7 @@ export default function App() {
         .update({ data: settings })
         .eq('user_id', session.user.id);
       if (error) console.error('שגיאת שמירת הגדרות:', error);
+      else try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settings)); } catch (e) {}
     }, 800);
     return () => clearTimeout(t);
   }, [settings, session]);
@@ -261,6 +276,12 @@ export default function App() {
   }
 
   async function handleLogout() {
+    if (session) {
+      try {
+        localStorage.removeItem(`vaad_tenants_${session.user.id}`);
+        localStorage.removeItem(`vaad_settings_${session.user.id}`);
+      } catch (e) {}
+    }
     await supabase.auth.signOut();
   }
 
