@@ -192,11 +192,8 @@ export default function App() {
           if (p.status === 'זכות' && monthsToFill.includes(p.hebrewMonth) && p.hebrewYear === year) {
             const paid = p.paidAmount || 0;
             if (paid >= p.amount) { anyAdded = true; return { ...p, status: 'שולם' }; }
-            return p;
-          }
-          if (p.status === 'חוב' && (p.paidAmount || 0) > 0 && (p.paidAmount || 0) < p.amount) {
             anyAdded = true;
-            return { ...p, status: 'זכות' };
+            return { ...p, status: 'חוב' };
           }
           return p;
         });
@@ -341,14 +338,17 @@ export default function App() {
   }
 
   function updatePaymentPaid(pId, paidAmount) {
+    const { month: curMonth, year: curYear } = getCurrentHebrewDate();
+    const curIdx = TWELVE_MONTHS.indexOf(curMonth);
     setTenants(prev => prev.map(t => {
       if (t.id !== selectedId) return t;
       return { ...t, payments: t.payments.map(p => {
         if (p.id !== pId) return p;
         const paid = Math.max(Number(paidAmount) || 0, 0);
         const capped = Math.min(paid, p.amount);
-        const newStatus = capped >= p.amount ? 'שולם' : capped > 0 ? 'זכות' : 'חוב';
-        return { ...p, paidAmount: capped, status: newStatus };
+        if (capped >= p.amount) return { ...p, paidAmount: capped, status: 'שולם' };
+        const isFuture = p.hebrewYear === curYear && TWELVE_MONTHS.indexOf(p.hebrewMonth) > curIdx;
+        return { ...p, paidAmount: capped, status: isFuture && capped > 0 ? 'זכות' : 'חוב' };
       })};
     }));
   }
