@@ -346,9 +346,9 @@ export default function App() {
         if (p.id !== pId) return p;
         const paid = Math.max(Number(paidAmount) || 0, 0);
         const capped = Math.min(paid, p.amount);
-        if (capped >= p.amount) return { ...p, paidAmount: capped, status: 'שולם' };
         const isFuture = p.hebrewYear === curYear && TWELVE_MONTHS.indexOf(p.hebrewMonth) > curIdx;
-        return { ...p, paidAmount: capped, status: isFuture && capped > 0 ? 'זכות' : 'חוב' };
+        if (isFuture) return { ...p, paidAmount: capped, status: capped > 0 ? 'זכות' : 'חוב' };
+        return { ...p, paidAmount: capped, status: capped >= p.amount ? 'שולם' : 'חוב' };
       })};
     }));
   }
