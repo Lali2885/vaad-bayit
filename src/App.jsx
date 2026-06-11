@@ -194,7 +194,9 @@ export default function App() {
       });
 
       if (anyAdded || !tenantsRes.data) {
-        supabase.from('app_tenants').upsert({ user_id: session.user.id, data: loadedTenants, last_auto_month: autoKey });
+        supabase.from('app_tenants')
+          .upsert({ user_id: session.user.id, data: loadedTenants, last_auto_month: autoKey }, { onConflict: 'user_id' })
+          .then(({ error }) => { if (error) console.error('שגיאת יצירת נתונים:', error); });
       }
       setTenants(loadedTenants);
 
