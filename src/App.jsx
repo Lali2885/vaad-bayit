@@ -801,7 +801,7 @@ export default function App() {
                           <div key={exp.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-medium text-gray-700">{exp.description || 'הוצאה ללא שם'}</span>
-                              {exp.date && <span className="text-xs text-gray-400">{exp.date}</span>}
+                              {(exp.hebrewMonth || exp.hebrewYear) && <span className="text-xs text-gray-400">{exp.hebrewMonth} {exp.hebrewYear}</span>}
                               <span className="text-xs font-semibold text-teal-600">{(exp.perTenantAmount||0).toLocaleString()}₪ לדייר</span>
                             </div>
                             <button onClick={() => {
@@ -872,7 +872,8 @@ export default function App() {
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-gray-800">הוצאות חריגות</h2>
               <button onClick={() => {
-                const newExp = { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, date: new Date().toLocaleDateString('he-IL'), note: '' };
+                const { month: curM, year: curY } = getCurrentHebrewDate();
+                const newExp = { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, hebrewMonth: curM, hebrewYear: curY, note: '' };
                 setSettings(s => ({ ...s, extraordinaryExpenses: [...(s.extraordinaryExpenses || []), newExp] }));
               }} className="flex items-center gap-2 bg-teal-700 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-teal-600 transition">
                 <Plus size={14} /> הוסף הוצאה
@@ -885,7 +886,7 @@ export default function App() {
                     <thead>
                       <tr className="border-b bg-gray-50 text-gray-500 text-xs">
                         <th className="px-4 py-3 font-medium">תיאור</th>
-                        <th className="px-4 py-3 font-medium">תאריך</th>
+                        <th className="px-4 py-3 font-medium">חודש / שנה</th>
                         <th className="px-4 py-3 font-medium">סכום כולל</th>
                         <th className="px-4 py-3 font-medium">חלק לדייר</th>
                         <th className="px-4 py-3 font-medium">הערה</th>
@@ -902,10 +903,16 @@ export default function App() {
                               className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full" />
                           </td>
                           <td className="px-4 py-3">
-                            <input value={exp.date}
-                              onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,date:e.target.value} : x) }))}
-                              placeholder="dd/mm/yy"
-                              className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-24" />
+                            <div className="flex items-center gap-1">
+                              <select value={exp.hebrewMonth || ''} onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewMonth:e.target.value} : x) }))}
+                                className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white">
+                                {TWELVE_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+                              </select>
+                              <select value={exp.hebrewYear || CURRENT_HEBREW_YEAR} onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewYear:e.target.value} : x) }))}
+                                className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white">
+                                {HEBREW_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+                              </select>
+                            </div>
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1">
