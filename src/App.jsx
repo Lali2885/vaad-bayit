@@ -15,6 +15,7 @@ const INITIAL_SETTINGS = {
     { id: 1, name: 'תזכורת תשלום', body: 'שלום {שם},\nזוהי תזכורת לתשלום דמי ועד בית עבור חודש {חודש}.\nסכום לתשלום: {סכום}₪\nאנא שלמו עד תאריך {תאריך}.\nבברכה, {מנהל}' },
     { id: 2, name: 'מכתב לדיירים', body: 'לכבוד דיירי הבניין,\n\nנשמח להודיעכם כי...\n\nבברכה,\n{מנהל}\n{טלפון}' },
   ],
+  extraordinaryExpenses: [],
 };
 
 const HEBREW_MONTHS = ['תשרי','חשוון','כסלו','טבת','שבט','אדר','אדר א׳','אדר ב׳','ניסן','אייר','סיוון','תמוז','אב','אלול'];
@@ -218,6 +219,7 @@ export default function App() {
         if (!p.managers) p.managers = [{ id: 1, name: '', phone: '', email: '', role: 'יו"ר הוועד' }];
         if (!p.templates) p.templates = INITIAL_SETTINGS.templates;
         if (!p.feeHistory) p.feeHistory = INITIAL_SETTINGS.feeHistory;
+        if (!p.extraordinaryExpenses) p.extraordinaryExpenses = [];
         setSettings({ ...INITIAL_SETTINGS, ...p });
       } else {
         setSettings(INITIAL_SETTINGS);
@@ -447,7 +449,7 @@ export default function App() {
           <button onClick={goList} className={`flex flex-col items-center gap-1.5 w-full py-3 rounded-2xl transition-all ${view === 'list' ? 'bg-white/20 text-white' : 'text-cyan-100 hover:text-white hover:bg-white/10'}`}>
             <Home size={26} /><span className="text-[11px] font-medium">דיירים</span>
           </button>
-          <button className="flex flex-col items-center gap-1.5 w-full py-3 rounded-2xl text-cyan-100 hover:text-white hover:bg-white/10 transition-all">
+          <button onClick={() => setView('expenses')} className={`flex flex-col items-center gap-1.5 w-full py-3 rounded-2xl transition-all ${view === 'expenses' ? 'bg-white/20 text-white' : 'text-cyan-100 hover:text-white hover:bg-white/10'}`}>
             <ReceiptText size={26} /><span className="text-[11px] font-medium">הוצאות</span>
           </button>
           <button onClick={openSettings} className={`flex flex-col items-center gap-1.5 w-full py-3 rounded-2xl transition-all ${view === 'settings' ? 'bg-white/20 text-white' : 'text-cyan-100 hover:text-white hover:bg-white/10'}`}>
@@ -688,7 +690,7 @@ export default function App() {
                       <Plus size={14} /> הוסף חיוב
                     </button>
                   </div>
-                  {(selectedTenant.charges || []).length === 0
+                  {(selectedTenant.charges || []).filter(c => !c.expenseId).length === 0
                     ? <p className="text-sm text-gray-400 text-center py-4">אין חיובים נוספים</p>
                     : <table className="w-full text-sm text-right">
                         <thead><tr className="border-b text-gray-400 text-xs">
@@ -699,7 +701,7 @@ export default function App() {
                           <th className="pb-2"></th>
                         </tr></thead>
                         <tbody>
-                          {(selectedTenant.charges || []).map(c => (
+                          {(selectedTenant.charges || []).filter(c => !c.expenseId).map(c => (
                             <tr key={c.id} className="border-b group">
                               <td className="py-2">
                                 <input value={c.description} onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,description:e.target.value} : x) }))}
@@ -732,6 +734,64 @@ export default function App() {
                       </table>
                   }
                 </div>
+
+                {settings.extraordinaryExpenses && settings.extraordinaryExpenses.length > 0 && (
+                  <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                    <h4 className="font-bold text-base text-teal-800 mb-4">הוצאות חריגות</h4>
+
+                    {(selectedTenant.charges || []).filter(c => c.expenseId).length > 0 && (
+                      <table className="w-full text-sm text-right mb-4">
+                        <thead><tr className="border-b text-gray-400 text-xs">
+                          <th className="pb-2 font-medium">תיאור</th>
+                          <th className="pb-2 font-medium">סכום</th>
+                          <th className="pb-2 font-medium">סטטוס</th>
+                          <th className="pb-2"></th>
+                        </tr></thead>
+                        <tbody>
+                          {(selectedTenant.charges || []).filter(c => c.expenseId).map(c => (
+                            <tr key={c.id} className="border-b group">
+                              <td className="py-2 text-sm text-gray-700">{c.description || 'הוצאה חריגה'}</td>
+                              <td className="py-2 font-medium text-gray-800">{(c.amount||0).toLocaleString()}₪</td>
+                              <td className="py-2">
+                                <button onClick={() => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,status:x.status==='שולם'?'חוב':'שולם'} : x) }))}
+                                  className={`text-xs px-2 py-1 rounded-full border font-medium transition ${c.status==='שולם'?'text-green-600 border-green-200 hover:bg-green-50':'text-red-500 border-red-200 hover:bg-red-50'}`}>
+                                  {c.status}
+                                </button>
+                              </td>
+                              <td className="py-2 text-left">
+                                <button onClick={() => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.filter(x => x.id !== c.id) }))}
+                                  className="text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100"><Trash2 size={13} /></button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+
+                    <div className="space-y-2">
+                      {settings.extraordinaryExpenses
+                        .filter(exp => !(selectedTenant.charges || []).some(c => c.expenseId === exp.id))
+                        .map(exp => (
+                          <div key={exp.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-medium text-gray-700">{exp.description || 'הוצאה ללא שם'}</span>
+                              {exp.date && <span className="text-xs text-gray-400">{exp.date}</span>}
+                              <span className="text-xs font-semibold text-teal-600">{(exp.perTenantAmount||0).toLocaleString()}₪ לדייר</span>
+                            </div>
+                            <button onClick={() => {
+                              const newCharge = { id: Date.now(), description: exp.description, amount: exp.perTenantAmount, status: 'חוב', note: '', expenseId: exp.id };
+                              setTenants(prev => prev.map(t => t.id === selectedId ? { ...t, charges: [...(t.charges||[]), newCharge] } : t));
+                            }} className="text-xs text-teal-700 border border-teal-200 hover:bg-teal-50 px-3 py-1.5 rounded-full font-medium transition whitespace-nowrap">
+                              משוך לדייר
+                            </button>
+                          </div>
+                        ))}
+                      {settings.extraordinaryExpenses.every(exp => (selectedTenant.charges || []).some(c => c.expenseId === exp.id)) && (
+                        <p className="text-xs text-gray-400 text-center py-2">כל ההוצאות החריגות כבר משוכות לדייר</p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-5">
@@ -777,6 +837,83 @@ export default function App() {
                 <button onClick={addNewTenant} disabled={!newTenant.name||!newTenant.apt} className="bg-teal-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm disabled:opacity-40 hover:bg-teal-600 transition">שמור דייר</button>
                 <button onClick={goList} className="border border-gray-200 text-gray-600 px-6 py-2.5 rounded-xl font-bold text-sm hover:bg-gray-50 transition">ביטול</button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {view === 'expenses' && settings && (
+          <div className="max-w-3xl mx-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-gray-800">הוצאות חריגות</h2>
+              <button onClick={() => {
+                const newExp = { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, date: new Date().toLocaleDateString('he-IL'), note: '' };
+                setSettings(s => ({ ...s, extraordinaryExpenses: [...(s.extraordinaryExpenses || []), newExp] }));
+              }} className="flex items-center gap-2 bg-teal-700 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-teal-600 transition">
+                <Plus size={14} /> הוסף הוצאה
+              </button>
+            </div>
+            <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+              {(!settings.extraordinaryExpenses || settings.extraordinaryExpenses.length === 0)
+                ? <p className="text-center text-gray-400 text-sm py-14">אין הוצאות חריגות. לחצי על "הוסף הוצאה" כדי להתחיל.</p>
+                : <table className="w-full text-sm text-right">
+                    <thead>
+                      <tr className="border-b bg-gray-50 text-gray-500 text-xs">
+                        <th className="px-4 py-3 font-medium">תיאור</th>
+                        <th className="px-4 py-3 font-medium">תאריך</th>
+                        <th className="px-4 py-3 font-medium">סכום כולל</th>
+                        <th className="px-4 py-3 font-medium">חלק לדייר</th>
+                        <th className="px-4 py-3 font-medium">הערה</th>
+                        <th className="px-4 py-3"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {settings.extraordinaryExpenses.map(exp => (
+                        <tr key={exp.id} className="border-b group hover:bg-gray-50/50 transition">
+                          <td className="px-4 py-3">
+                            <input value={exp.description}
+                              onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,description:e.target.value} : x) }))}
+                              placeholder="תיאור ההוצאה"
+                              className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full" />
+                          </td>
+                          <td className="px-4 py-3">
+                            <input value={exp.date}
+                              onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,date:e.target.value} : x) }))}
+                              placeholder="dd/mm/yy"
+                              className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-24" />
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1">
+                              <input type="number" value={exp.totalAmount} onFocus={e => e.target.select()}
+                                onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,totalAmount:Number(e.target.value)} : x) }))}
+                                className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
+                              <span className="text-xs text-gray-400">₪</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1">
+                              <input type="number" value={exp.perTenantAmount} onFocus={e => e.target.select()}
+                                onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,perTenantAmount:Number(e.target.value)} : x) }))}
+                                className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
+                              <span className="text-xs text-gray-400">₪</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <input value={exp.note}
+                              onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,note:e.target.value} : x) }))}
+                              placeholder="הערה"
+                              className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full text-gray-500" />
+                          </td>
+                          <td className="px-4 py-3 text-left">
+                            <button onClick={() => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.filter(x => x.id !== exp.id) }))}
+                              className="text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100">
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+              }
             </div>
           </div>
         )}
