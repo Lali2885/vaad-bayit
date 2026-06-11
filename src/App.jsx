@@ -43,6 +43,56 @@ function getCurrentHebrewDate() {
   return { month: months[numericMonth - 1], year: numericToHebrewYear(numericYear), numericYear };
 }
 
+const _hebrewDateFmt = new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric', month: 'numeric', year: 'numeric' });
+
+function hebrewYearStrToNumeric(str) {
+  const { numericYear } = getCurrentHebrewDate();
+  for (let y = numericYear - 20; y <= numericYear + 20; y++) {
+    if (numericToHebrewYear(y) === str) return y;
+  }
+  return null;
+}
+
+function gregorianToHebrewDate(date) {
+  const parts = _hebrewDateFmt.formatToParts(date);
+  const numY = parseInt(parts.find(p => p.type === 'year')?.value);
+  const numM = parseInt(parts.find(p => p.type === 'month')?.value);
+  const numD = parseInt(parts.find(p => p.type === 'day')?.value);
+  const isLeap = ((7 * numY) + 1) % 19 < 7;
+  const months = isLeap
+    ? ['תשרי','חשוון','כסלו','טבת','שבט','אדר א׳','אדר ב׳','ניסן','אייר','סיוון','תמוז','אב','אלול']
+    : ['תשרי','חשוון','כסלו','טבת','שבט','אדר','ניסן','אייר','סיוון','תמוז','אב','אלול'];
+  let month = months[numM - 1] || '';
+  if (month === 'אדר א׳') month = 'אדר';
+  if (month === 'אדר ב׳') month = 'אדר';
+  return { day: numD, month, year: numericToHebrewYear(numY) };
+}
+
+function hebrewDateToGregorian(hDay, hMonth, hYearStr) {
+  const numericYear = hebrewYearStrToNumeric(hYearStr);
+  if (!numericYear || !hDay || !hMonth) return null;
+  const isLeap = ((7 * numericYear) + 1) % 19 < 7;
+  const months = isLeap
+    ? ['תשרי','חשוון','כסלו','טבת','שבט','אדר א׳','אדר ב׳','ניסן','אייר','סיוון','תמוז','אב','אלול']
+    : ['תשרי','חשוון','כסלו','טבת','שבט','אדר','ניסן','אייר','סיוון','תמוז','אב','אלול'];
+  const monthName = (isLeap && hMonth === 'אדר') ? 'אדר א׳' : hMonth;
+  const monthIdx = months.indexOf(monthName); // 0-based
+  if (monthIdx === -1) return null;
+  const targetNumMonth = monthIdx + 1;
+  // Estimate target date: Tishri 1 is ~Sep 1 of (numericYear-3761), each month ~29.5 days
+  const approxMs = new Date(numericYear - 3761, 8, 1).getTime() + monthIdx * 29.5 * 86400000 + (hDay - 1) * 86400000;
+  // Search ±40 days around estimate
+  for (let offset = -40; offset <= 40; offset++) {
+    const candidate = new Date(approxMs + offset * 86400000);
+    const parts = _hebrewDateFmt.formatToParts(candidate);
+    const pY = parseInt(parts.find(p => p.type === 'year')?.value);
+    const pM = parseInt(parts.find(p => p.type === 'month')?.value);
+    const pD = parseInt(parts.find(p => p.type === 'day')?.value);
+    if (pY === numericYear && pM === targetNumMonth && pD === hDay) return candidate;
+  }
+  return null;
+}
+
 const { year: CURRENT_HEBREW_YEAR } = getCurrentHebrewDate();
 const HEBREW_YEARS = (() => {
   const { numericYear } = getCurrentHebrewDate();
@@ -801,7 +851,7 @@ export default function App() {
                           <div key={exp.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-medium text-gray-700">{exp.description || 'הוצאה ללא שם'}</span>
-                              {(exp.hebrewMonth || exp.hebrewYear) && <span className="text-xs text-gray-400">{exp.hebrewMonth} {exp.hebrewYear}</span>}
+                              {(exp.hebrewMonth || exp.hebrewYear) && <span className="text-xs text-gray-400">{exp.hebrewDay ? `${exp.hebrewDay} ` : ''}{exp.hebrewMonth} {exp.hebrewYear}</span>}
                               <span className="text-xs font-semibold text-teal-600">{(exp.perTenantAmount||0).toLocaleString()}₪ לדייר</span>
                             </div>
                             <button onClick={() => {
@@ -872,8 +922,9 @@ export default function App() {
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-gray-800">הוצאות חריגות</h2>
               <button onClick={() => {
-                const { month: curM, year: curY } = getCurrentHebrewDate();
-                const newExp = { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, hebrewMonth: curM, hebrewYear: curY, note: '' };
+                const { month: curM, year: curY, numericYear: curNY } = getCurrentHebrewDate();
+                const curD = parseInt(new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric' }).format(new Date()));
+                const newExp = { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, hebrewDay: curD, hebrewMonth: curM, hebrewYear: curY, note: '' };
                 setSettings(s => ({ ...s, extraordinaryExpenses: [...(s.extraordinaryExpenses || []), newExp] }));
               }} className="flex items-center gap-2 bg-teal-700 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-teal-600 transition">
                 <Plus size={14} /> הוסף הוצאה
@@ -903,15 +954,30 @@ export default function App() {
                               className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full" />
                           </td>
                           <td className="px-4 py-3">
-                            <div className="flex items-center gap-1">
-                              <select value={exp.hebrewMonth || ''} onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewMonth:e.target.value} : x) }))}
-                                className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white">
-                                {TWELVE_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
-                              </select>
-                              <select value={exp.hebrewYear || CURRENT_HEBREW_YEAR} onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewYear:e.target.value} : x) }))}
-                                className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white">
-                                {HEBREW_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
-                              </select>
+                            <div className="flex flex-col gap-1.5">
+                              <div className="flex items-center gap-1 flex-wrap">
+                                <input type="number" min="1" max="30" onFocus={e => e.target.select()}
+                                  value={exp.hebrewDay || ''}
+                                  onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewDay:Math.min(30,Math.max(1,Number(e.target.value)||1))} : x) }))}
+                                  placeholder="יום"
+                                  className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs w-11 text-center focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white" />
+                                <select value={exp.hebrewMonth || ''} onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewMonth:e.target.value} : x) }))}
+                                  className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white">
+                                  <option value="">חודש</option>
+                                  {TWELVE_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                                <select value={exp.hebrewYear || CURRENT_HEBREW_YEAR} onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewYear:e.target.value} : x) }))}
+                                  className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white">
+                                  {HEBREW_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+                                </select>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs text-gray-400 shrink-0">לועזי:</span>
+                                <input type="date"
+                                  value={(() => { const g = hebrewDateToGregorian(exp.hebrewDay, exp.hebrewMonth, exp.hebrewYear); return g ? `${g.getFullYear()}-${String(g.getMonth()+1).padStart(2,'0')}-${String(g.getDate()).padStart(2,'0')}` : ''; })()}
+                                  onChange={e => { if (!e.target.value) return; const h = gregorianToHebrewDate(new Date(e.target.value + 'T12:00:00')); setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewDay:h.day,hebrewMonth:h.month,hebrewYear:h.year} : x) })); }}
+                                  className="text-xs text-gray-600 border border-gray-200 rounded-lg px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white" />
+                              </div>
                             </div>
                           </td>
                           <td className="px-4 py-3">
