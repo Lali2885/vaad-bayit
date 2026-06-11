@@ -121,6 +121,10 @@ function calcDebt(tenant) {
   return fromPayments + fromCharges;
 }
 
+function calcCredit(tenant) {
+  return tenant.payments.filter(p => p.status === 'זכות').reduce((sum, p) => sum + (p.paidAmount || 0), 0);
+}
+
 const EMPTY_TENANT = { name: '', apt: '', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 0, owner: '', payments: [], charges: [] };
 
 export default function App() {
@@ -473,6 +477,7 @@ export default function App() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
               {tenants.map(t => {
                 const debt = calcDebt(t);
+                const credit = calcCredit(t);
                 const isRental = Number(t.apt) >= 13;
                 return (
                   <div key={t.id} onClick={() => openTenant(t.id)}
@@ -486,8 +491,22 @@ export default function App() {
                       {t.apt}
                     </div>
                     <p className="font-bold text-sm text-gray-800">{t.name}</p>
-                    <div className={`flex items-center justify-center gap-1 mt-2 text-xs font-semibold ${debt > 0 ? 'text-red-500' : 'text-teal-600'}`}>
-                      {debt > 0 ? <><Banknote size={13} /> {debt.toLocaleString()}₪</> : <><Check size={12} /> מעודכן</>}
+                    <div className="flex flex-col items-center gap-0.5 mt-2">
+                      {debt > 0 && (
+                        <div className="flex items-center justify-center gap-1 text-xs font-semibold text-red-500">
+                          <Banknote size={13} /> {debt.toLocaleString()}₪ חוב
+                        </div>
+                      )}
+                      {credit > 0 && (
+                        <div className="flex items-center justify-center gap-1 text-xs font-semibold text-green-600">
+                          <Check size={12} /> {credit.toLocaleString()}₪ זכות
+                        </div>
+                      )}
+                      {debt === 0 && credit === 0 && (
+                        <div className="flex items-center justify-center gap-1 text-xs font-semibold text-teal-600">
+                          <Check size={12} /> מעודכן
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
