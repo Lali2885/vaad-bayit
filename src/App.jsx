@@ -191,9 +191,12 @@ export default function App() {
         let newPayments = tenant.payments.map(p => {
           if (p.status === 'זכות' && monthsToFill.includes(p.hebrewMonth) && p.hebrewYear === year) {
             const paid = p.paidAmount || 0;
-            if (paid >= p.amount) return { ...p, status: 'שולם' };
+            if (paid >= p.amount) { anyAdded = true; return { ...p, status: 'שולם' }; }
+            return p;
+          }
+          if (p.status === 'חוב' && (p.paidAmount || 0) > 0 && (p.paidAmount || 0) < p.amount) {
             anyAdded = true;
-            return { ...p, status: 'חוב' };
+            return { ...p, status: 'זכות' };
           }
           return p;
         });
@@ -343,9 +346,9 @@ export default function App() {
       return { ...t, payments: t.payments.map(p => {
         if (p.id !== pId) return p;
         const paid = Math.max(Number(paidAmount) || 0, 0);
-        if (p.status === 'זכות') return { ...p, paidAmount: paid };
         const capped = Math.min(paid, p.amount);
-        return { ...p, paidAmount: capped, status: capped >= p.amount ? 'שולם' : 'חוב' };
+        const newStatus = capped >= p.amount ? 'שולם' : capped > 0 ? 'זכות' : 'חוב';
+        return { ...p, paidAmount: capped, status: newStatus };
       })};
     }));
   }
@@ -645,15 +648,20 @@ export default function App() {
                               }
                             </td>
                             <td className="py-2">
-                              {p.status === 'שולם'
+                              {p.status === 'שולם' || (p.status === 'זכות' && remaining <= 0)
                                 ? <span className="text-green-600 text-xs">0₪</span>
+                                : p.status === 'זכות'
+                                ? <span className="font-semibold text-xs text-orange-400">{remaining.toLocaleString()}₪</span>
                                 : <span className={`font-semibold text-xs ${remaining > 0 ? 'text-red-500' : 'text-green-600'}`}>{remaining.toLocaleString()}₪</span>
                               }
                             </td>
                             <td className="py-2 text-left">
                               <div className="flex items-center gap-1 justify-end">
                                 {p.status === 'זכות'
-                                  ? <button onClick={() => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, payments: t.payments.map(x => x.id !== p.id ? x : { ...x, status: 'חוב', paidAmount: 0 }) }))} className="text-xs text-gray-400 hover:text-red-400 border border-gray-200 hover:border-red-200 px-2 py-0.5 rounded-full transition whitespace-nowrap">בטל זכות</button>
+                                  ? <>
+                                      {remaining > 0 && <button onClick={() => togglePayment(p.id)} className="text-xs text-green-600 border border-green-200 hover:bg-green-50 px-2 py-0.5 rounded-full transition whitespace-nowrap">שולם מלא</button>}
+                                      <button onClick={() => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, payments: t.payments.map(x => x.id !== p.id ? x : { ...x, status: 'חוב', paidAmount: 0 }) }))} className="text-xs text-gray-400 hover:text-red-400 border border-gray-200 hover:border-red-200 px-2 py-0.5 rounded-full transition whitespace-nowrap">בטל</button>
+                                    </>
                                   : p.status === 'שולם'
                                   ? <button onClick={() => togglePayment(p.id)} className="text-xs text-gray-400 hover:text-red-400 border border-gray-200 hover:border-red-200 px-2 py-0.5 rounded-full transition">בטל</button>
                                   : <button onClick={() => togglePayment(p.id)} className="text-xs text-green-600 border border-green-200 hover:bg-green-50 px-2 py-0.5 rounded-full transition whitespace-nowrap">שולם מלא</button>
