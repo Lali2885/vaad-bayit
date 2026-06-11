@@ -99,6 +99,77 @@ const HEBREW_YEARS = (() => {
   return [numericYear - 1, numericYear, numericYear + 1, numericYear + 2].map(numericToHebrewYear);
 })();
 
+const _todayHebFmt = new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric' });
+
+function HebrewCalendarPicker({ day, month, year, onChange, onClose }) {
+  const { numericYear: initNumY } = getCurrentHebrewDate();
+  const [navNumYear, setNavNumYear] = useState(() => hebrewYearStrToNumeric(year) || initNumY);
+  const [navMonthIdx, setNavMonthIdx] = useState(() => Math.max(0, TWELVE_MONTHS.indexOf(month)));
+
+  const navMonthName = TWELVE_MONTHS[navMonthIdx];
+  const navYearStr = numericToHebrewYear(navNumYear);
+
+  function navigate(dir) {
+    let idx = navMonthIdx + dir;
+    let y = navNumYear;
+    if (idx < 0)  { idx = 11; y--; }
+    if (idx > 11) { idx = 0;  y++; }
+    setNavMonthIdx(idx);
+    setNavNumYear(y);
+  }
+
+  const firstG    = hebrewDateToGregorian(1, navMonthName, navYearStr);
+  const firstDow  = firstG ? firstG.getDay() : 0;          // 0=Sun … 6=Sat
+  const has30     = !!hebrewDateToGregorian(30, navMonthName, navYearStr);
+  const totalDays = has30 ? 30 : 29;
+
+  const { month: todayM, year: todayY } = getCurrentHebrewDate();
+  const todayD = parseInt(_todayHebFmt.format(new Date()));
+
+  // flat cells: nulls for padding, then 1..totalDays
+  const cells = [...Array(firstDow).fill(null), ...Array.from({ length: totalDays }, (_, i) => i + 1)];
+
+  const DAY_HEADS = ['א','ב','ג','ד','ה','ו','ש'];
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl shadow-xl p-3 w-56 select-none" dir="rtl">
+      <div className="flex items-center justify-between mb-2">
+        <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-teal-600 px-1 text-lg leading-none">‹</button>
+        <span className="text-sm font-bold text-teal-800">{navMonthName} {navYearStr}</span>
+        <button onClick={() => navigate(1)}  className="text-gray-400 hover:text-teal-600 px-1 text-lg leading-none">›</button>
+      </div>
+
+      <div className="grid grid-cols-7 mb-1">
+        {DAY_HEADS.map((h, i) => (
+          <div key={h} className={`text-center text-xs font-semibold py-0.5 ${i === 6 ? 'text-blue-400' : 'text-gray-400'}`}>{h}</div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7">
+        {Array.from({ length: Math.ceil(cells.length / 7) * 7 }, (_, i) => {
+          const d = cells[i] ?? null;
+          const isSelected = d && d === day && navMonthName === month && navYearStr === year;
+          const isToday    = d && d === todayD && navMonthName === todayM && navYearStr === todayY;
+          const isShabat   = i % 7 === 6;
+          return (
+            <button key={i} disabled={!d}
+              onClick={() => { if (d) { onChange(d, navMonthName, navYearStr); onClose(); } }}
+              className={[
+                'text-xs py-1 rounded-full mx-px my-px transition leading-none',
+                !d         ? 'invisible pointer-events-none' : '',
+                isSelected ? 'bg-teal-600 text-white font-bold' : '',
+                isToday && !isSelected ? 'border border-teal-400 text-teal-700 font-bold' : '',
+                !isSelected && !isToday && d ? (isShabat ? 'text-blue-400 hover:bg-blue-50' : 'text-gray-700 hover:bg-gray-100') : '',
+              ].join(' ')}>
+              {d || ''}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const TENANTS_VERSION = 'v5-apt1-paid';
 
 const INITIAL_TENANTS = [
@@ -196,6 +267,8 @@ export default function App() {
   const [tenantMsgText, setTenantMsgText] = useState('');
   const logoInputRef = useRef(null);
   const dataLoadedForUser = useRef(null);
+  const [expPickerId, setExpPickerId] = useState(null);
+  const [expPickerPos, setExpPickerPos] = useState({ top: 0, left: 0 });
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
@@ -955,22 +1028,11 @@ export default function App() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-col gap-1.5">
-                              <div className="flex items-center gap-1 flex-wrap">
-                                <input type="number" min="1" max="30" onFocus={e => e.target.select()}
-                                  value={exp.hebrewDay || ''}
-                                  onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewDay:Math.min(30,Math.max(1,Number(e.target.value)||1))} : x) }))}
-                                  placeholder="יום"
-                                  className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs w-11 text-center focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white" />
-                                <select value={exp.hebrewMonth || ''} onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewMonth:e.target.value} : x) }))}
-                                  className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white">
-                                  <option value="">חודש</option>
-                                  {TWELVE_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
-                                </select>
-                                <select value={exp.hebrewYear || CURRENT_HEBREW_YEAR} onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewYear:e.target.value} : x) }))}
-                                  className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white">
-                                  {HEBREW_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
-                                </select>
-                              </div>
+                              <button
+                                onClick={e => { const r = e.currentTarget.getBoundingClientRect(); setExpPickerPos({ top: r.bottom + 4, left: r.left }); setExpPickerId(expPickerId === exp.id ? null : exp.id); }}
+                                className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white hover:border-teal-400 text-right w-full transition">
+                                {exp.hebrewDay ? `${exp.hebrewDay} ${exp.hebrewMonth} ${exp.hebrewYear}` : 'בחר תאריך עברי'}
+                              </button>
                               <div className="flex items-center gap-1">
                                 <span className="text-xs text-gray-400 shrink-0">לועזי:</span>
                                 <input type="date"
@@ -1202,6 +1264,20 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {expPickerId && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setExpPickerId(null)} />
+          <div style={{ position: 'fixed', top: expPickerPos.top, left: expPickerPos.left, zIndex: 50 }}>
+            {settings?.extraordinaryExpenses?.filter(e => e.id === expPickerId).map(exp => (
+              <HebrewCalendarPicker key={exp.id}
+                day={exp.hebrewDay} month={exp.hebrewMonth} year={exp.hebrewYear}
+                onChange={(d, m, y) => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewDay:d,hebrewMonth:m,hebrewYear:y} : x) }))}
+                onClose={() => setExpPickerId(null)} />
+            ))}
+          </div>
+        </>
+      )}
 
       {showTenantMsg && selectedTenant && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
