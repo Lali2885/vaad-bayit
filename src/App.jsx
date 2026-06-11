@@ -214,16 +214,22 @@ export default function App() {
 
   useEffect(() => {
     if (!session || !tenants) return;
-    const t = setTimeout(() => {
-      supabase.from('app_tenants').upsert({ user_id: session.user.id, data: tenants });
+    const t = setTimeout(async () => {
+      const { error } = await supabase.from('app_tenants')
+        .update({ data: tenants })
+        .eq('user_id', session.user.id);
+      if (error) console.error('שגיאת שמירת דיירים:', error);
     }, 800);
     return () => clearTimeout(t);
   }, [tenants, session]);
 
   useEffect(() => {
     if (!session || !settings) return;
-    const t = setTimeout(() => {
-      supabase.from('app_settings').upsert({ user_id: session.user.id, data: settings });
+    const t = setTimeout(async () => {
+      const { error } = await supabase.from('app_settings')
+        .update({ data: settings })
+        .eq('user_id', session.user.id);
+      if (error) console.error('שגיאת שמירת הגדרות:', error);
     }, 800);
     return () => clearTimeout(t);
   }, [settings, session]);
