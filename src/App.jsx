@@ -184,14 +184,22 @@ export default function App() {
       let anyAdded = false;
       const baseId = Date.now();
       loadedTenants = base.map((tenant, tIdx) => {
-        const newPayments = [...tenant.payments];
+        let newPayments = tenant.payments.map(p => {
+          if (p.status === 'זכות' && monthsToFill.includes(p.hebrewMonth) && p.hebrewYear === year) {
+            const paid = p.paidAmount || 0;
+            if (paid >= p.amount) return { ...p, status: 'שולם' };
+            anyAdded = true;
+            return { ...p, status: 'חוב' };
+          }
+          return p;
+        });
         monthsToFill.forEach((m, mIdx) => {
-          if (!tenant.payments.some(p => p.hebrewMonth === m && p.hebrewYear === year)) {
+          if (!newPayments.some(p => p.hebrewMonth === m && p.hebrewYear === year)) {
             newPayments.push({ id: baseId + tIdx * 100 + mIdx, hebrewMonth: m, hebrewYear: year, status: 'חוב', amount: tenant.monthlyRent, paidAmount: 0 });
             anyAdded = true;
           }
         });
-        return newPayments.length !== tenant.payments.length ? { ...tenant, payments: newPayments } : tenant;
+        return { ...tenant, payments: newPayments };
       });
 
       if (anyAdded || !tenantsRes.data) {
@@ -351,7 +359,10 @@ export default function App() {
 
   function addPaymentDirect(month, year) {
     const amount = getFeeForMonth(month, year);
-    const newP = { id: Date.now(), hebrewMonth: month, hebrewYear: year, status: 'חוב', amount, paidAmount: 0 };
+    const { month: curMonth, year: curYear } = getCurrentHebrewDate();
+    const isFuture = year === curYear && TWELVE_MONTHS.indexOf(month) > TWELVE_MONTHS.indexOf(curMonth);
+    const status = isFuture ? 'זכות' : 'חוב';
+    const newP = { id: Date.now(), hebrewMonth: month, hebrewYear: year, status, amount, paidAmount: isFuture ? amount : 0 };
     setTenants(prev => prev.map(t => t.id === selectedId ? { ...t, payments: [...t.payments, newP] } : t));
   }
 
@@ -587,13 +598,15 @@ export default function App() {
                         );
                         const remaining = p.amount - (p.paidAmount || 0);
                         return (
-                          <tr key={month} className={`border-b ${p.status === 'שולם' ? '' : 'bg-red-50/20'}`}>
+                          <tr key={month} className={`border-b ${p.status === 'זכות' ? 'bg-teal-50/30' : p.status === 'שולם' ? '' : 'bg-red-50/20'}`}>
                             <td className="py-2 font-medium">{month}</td>
                             <td className="py-2">
                               <span className="text-sm font-medium text-gray-700">{p.amount.toLocaleString()}₪</span>
                             </td>
                             <td className="py-2">
-                              {p.status === 'שולם'
+                              {p.status === 'זכות'
+                                ? <span className="text-teal-600 font-semibold text-xs">זכות ✓</span>
+                                : p.status === 'שולם'
                                 ? <span className="text-green-600 font-semibold text-xs">{p.amount.toLocaleString()}₪ ✓</span>
                                 : <div className="flex items-center gap-1">
                                     <input type="number" value={p.paidAmount || 0} min={0} max={p.amount}
