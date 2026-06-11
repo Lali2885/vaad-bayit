@@ -532,7 +532,7 @@ export default function App() {
                                 </select>
                               </td>
                               <td className="py-2">
-                                <input type="number" value={p.amount} onChange={e => setEditData(d => ({...d, payments: d.payments.map((x,j) => j===i?{...x,amount:Number(e.target.value)}:x)}))} className="border rounded px-2 py-1 text-xs w-20" />
+                                <input type="number" value={p.amount} onChange={e => setEditData(d => ({...d, payments: d.payments.map((x,j) => j===i?{...x,amount:Number(e.target.value)}:x)}))} onFocus={e => e.target.select()} className="border rounded px-2 py-1 text-xs w-20" />
                               </td>
                               <td className="py-2 text-left">
                                 <button onClick={() => setEditData(d => ({...d, payments: d.payments.filter(x => x.id !== p.id)}))} className="text-gray-200 hover:text-red-400 transition"><Trash2 size={13} /></button>
@@ -557,11 +557,7 @@ export default function App() {
                           <tr key={month} className={`border-b ${p.status === 'שולם' ? '' : 'bg-red-50/20'}`}>
                             <td className="py-2 font-medium">{month}</td>
                             <td className="py-2">
-                              <div className="flex items-center gap-1">
-                                <input type="number" value={p.amount} onChange={e => updatePaymentAmount(p.id, e.target.value)}
-                                  className="border rounded px-2 py-1 text-xs w-16 focus:outline-none focus:ring-1 focus:ring-teal-400" />
-                                <span className="text-xs text-gray-400">₪</span>
-                              </div>
+                              <span className="text-sm font-medium text-gray-700">{p.amount.toLocaleString()}₪</span>
                             </td>
                             <td className="py-2">
                               {p.status === 'שולם'
@@ -569,6 +565,7 @@ export default function App() {
                                 : <div className="flex items-center gap-1">
                                     <input type="number" value={p.paidAmount || 0} min={0} max={p.amount}
                                       onChange={e => updatePaymentPaid(p.id, e.target.value)}
+                                      onFocus={e => e.target.select()}
                                       className="border rounded px-2 py-1 text-xs w-16 focus:outline-none focus:ring-1 focus:ring-teal-400" />
                                     <span className="text-xs text-gray-400">₪</span>
                                   </div>
@@ -630,7 +627,7 @@ export default function App() {
                                   placeholder="הערה" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full text-gray-500" />
                               </td>
                               <td className="py-2">
-                                <input type="number" value={c.amount} onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,amount:Number(e.target.value)} : x) }))}
+                                <input type="number" value={c.amount} onFocus={e => e.target.select()} onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,amount:Number(e.target.value)} : x) }))}
                                   className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
                                 <span className="text-xs text-gray-400">₪</span>
                               </td>
@@ -812,6 +809,7 @@ export default function App() {
                           <td className="py-2">
                             <div className="flex items-center gap-1">
                               <input type="number" value={fee.amount} onChange={e => setSettingsData(d => ({ ...d, feeHistory: d.feeHistory.map((x,j) => j===i?{...x,amount:Number(e.target.value)}:x) }))}
+                                onFocus={e => e.target.select()}
                                 className="border rounded px-2 py-1 text-xs w-20 focus:outline-none focus:ring-1 focus:ring-teal-400" />
                               {isActive && <span className="text-[10px] bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded-full font-medium">פעיל</span>}
                             </div>
