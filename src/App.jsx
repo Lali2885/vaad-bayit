@@ -145,6 +145,7 @@ export default function App() {
   const [showTenantMsg, setShowTenantMsg] = useState(false);
   const [tenantMsgText, setTenantMsgText] = useState('');
   const logoInputRef = useRef(null);
+  const dataLoadedForUser = useRef(null);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
@@ -167,7 +168,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session) { dataLoadedForUser.current = null; return; }
+    if (dataLoadedForUser.current === session.user.id) return;
+    dataLoadedForUser.current = session.user.id;
+
     const cacheKeyT = `vaad_tenants_${session.user.id}`;
     const cacheKeyS = `vaad_settings_${session.user.id}`;
     let hasCache = false;
@@ -176,7 +180,8 @@ export default function App() {
       const cs = localStorage.getItem(cacheKeyS);
       if (ct && cs) { setTenants(JSON.parse(ct)); setSettings(JSON.parse(cs)); hasCache = true; }
     } catch (e) {}
-    if (!hasCache) setDataLoading(true);
+    if (hasCache) return;
+    setDataLoading(true);
 
     const { month, year } = getCurrentHebrewDate();
     const autoKey = `${month}-${year}`;
