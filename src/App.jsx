@@ -165,31 +165,35 @@ export default function App() {
     setDataLoading(true);
     const { month, year } = getCurrentHebrewDate();
     const autoKey = `${month}-${year}`;
+    const currentMonthIdx = TWELVE_MONTHS.indexOf(month);
+    const monthsToFill = TWELVE_MONTHS.slice(0, currentMonthIdx + 1);
 
     Promise.all([
       supabase.from('app_tenants').select('data, last_auto_month').eq('user_id', session.user.id).maybeSingle(),
       supabase.from('app_settings').select('data').eq('user_id', session.user.id).maybeSingle(),
     ]).then(([tenantsRes, settingsRes]) => {
       let loadedTenants;
-      if (tenantsRes.data) {
-        loadedTenants = tenantsRes.data.data.map(t => ({
-          ...t, charges: t.charges || [],
-          payments: (t.payments || []).map(p => p.hebrewMonth ? p : { ...p, hebrewMonth: 'תשרי', hebrewYear: CURRENT_HEBREW_YEAR }),
-        }));
-        if (tenantsRes.data.last_auto_month !== autoKey) {
-          const baseId = Date.now();
-          loadedTenants = loadedTenants.map((tenant, idx) => {
-            if (tenant.payments.some(p => p.hebrewMonth === month && p.hebrewYear === year)) return tenant;
-            return { ...tenant, payments: [...tenant.payments, { id: baseId + idx, hebrewMonth: month, hebrewYear: year, status: 'חוב', amount: tenant.monthlyRent, paidAmount: 0 }] };
-          });
-          supabase.from('app_tenants').upsert({ user_id: session.user.id, data: loadedTenants, last_auto_month: autoKey });
-        }
-      } else {
-        const baseId = Date.now();
-        loadedTenants = INITIAL_TENANTS.map((tenant, idx) => {
-          if (tenant.payments.some(p => p.hebrewMonth === month && p.hebrewYear === year)) return tenant;
-          return { ...tenant, payments: [...tenant.payments, { id: baseId + idx, hebrewMonth: month, hebrewYear: year, status: 'חוב', amount: tenant.monthlyRent, paidAmount: 0 }] };
+      const base = tenantsRes.data
+        ? tenantsRes.data.data.map(t => ({
+            ...t, charges: t.charges || [],
+            payments: (t.payments || []).map(p => p.hebrewMonth ? p : { ...p, hebrewMonth: 'תשרי', hebrewYear: CURRENT_HEBREW_YEAR }),
+          }))
+        : INITIAL_TENANTS.map(t => ({ ...t }));
+
+      let anyAdded = false;
+      const baseId = Date.now();
+      loadedTenants = base.map((tenant, tIdx) => {
+        const newPayments = [...tenant.payments];
+        monthsToFill.forEach((m, mIdx) => {
+          if (!tenant.payments.some(p => p.hebrewMonth === m && p.hebrewYear === year)) {
+            newPayments.push({ id: baseId + tIdx * 100 + mIdx, hebrewMonth: m, hebrewYear: year, status: 'חוב', amount: tenant.monthlyRent, paidAmount: 0 });
+            anyAdded = true;
+          }
         });
+        return newPayments.length !== tenant.payments.length ? { ...tenant, payments: newPayments } : tenant;
+      });
+
+      if (anyAdded || !tenantsRes.data) {
         supabase.from('app_tenants').upsert({ user_id: session.user.id, data: loadedTenants, last_auto_month: autoKey });
       }
       setTenants(loadedTenants);
