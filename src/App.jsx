@@ -336,8 +336,22 @@ export default function App() {
     }));
   }
 
+  function getFeeForMonth(month, year) {
+    const yearRank = y => HEBREW_YEARS.indexOf(y);
+    const monthRank = m => TWELVE_MONTHS.indexOf(m);
+    const applicable = [...(settings.feeHistory || [])]
+      .filter(f => {
+        if (yearRank(year) > yearRank(f.fromYear)) return true;
+        if (yearRank(year) === yearRank(f.fromYear) && monthRank(month) >= monthRank(f.fromMonth)) return true;
+        return false;
+      })
+      .sort((a, b) => (yearRank(b.fromYear) * 100 + monthRank(b.fromMonth)) - (yearRank(a.fromYear) * 100 + monthRank(a.fromMonth)));
+    return applicable.length > 0 ? applicable[0].amount : (settings.feeHistory?.[0]?.amount || 40);
+  }
+
   function addPaymentDirect(month, year) {
-    const newP = { id: Date.now(), hebrewMonth: month, hebrewYear: year, status: 'חוב', amount: selectedTenant.monthlyRent, paidAmount: 0 };
+    const amount = getFeeForMonth(month, year);
+    const newP = { id: Date.now(), hebrewMonth: month, hebrewYear: year, status: 'חוב', amount, paidAmount: 0 };
     setTenants(prev => prev.map(t => t.id === selectedId ? { ...t, payments: [...t.payments, newP] } : t));
   }
 
