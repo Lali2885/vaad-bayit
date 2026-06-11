@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Home, ReceiptText, Building, ChevronRight, Mail, Bell, Plus, Pencil, Trash2, X, Check, Settings, Upload, ImageOff, MessageSquare, Banknote, LogOut } from 'lucide-react';
-import { supabase } from './supabase';
+import { supabase, testConnection } from './supabase';
 
 const INITIAL_SETTINGS = {
   buildingName: 'ועד בית קדושת לוי',
@@ -147,6 +147,7 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
+  const [dbError, setDbError] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -196,7 +197,7 @@ export default function App() {
       if (anyAdded || !tenantsRes.data) {
         supabase.from('app_tenants')
           .upsert({ user_id: session.user.id, data: loadedTenants, last_auto_month: autoKey }, { onConflict: 'user_id' })
-          .then(({ error }) => { if (error) console.error('שגיאת יצירת נתונים:', error); });
+          .then(({ error }) => { if (error) setDbError(`שגיאת שמירה: ${error.message} (${error.code})`); });
       }
       setTenants(loadedTenants);
 
@@ -397,6 +398,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-sky-50 flex font-sans" dir="rtl">
+      {dbError && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2">
+          <span>{dbError}</span>
+          <button onClick={() => setDbError(null)} className="hover:opacity-70"><X size={16} /></button>
+        </div>
+      )}
       <div className="w-28 shrink-0 flex flex-col items-center py-8 gap-6 text-white"
         style={{background: 'linear-gradient(160deg, #0f766e 0%, #0284c7 60%, #0c4a6e 100%)'}}>
         {settings.logo
