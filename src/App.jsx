@@ -342,8 +342,10 @@ export default function App() {
       if (t.id !== selectedId) return t;
       return { ...t, payments: t.payments.map(p => {
         if (p.id !== pId) return p;
-        const paid = Math.min(Math.max(Number(paidAmount) || 0, 0), p.amount);
-        return { ...p, paidAmount: paid, status: paid >= p.amount ? 'שולם' : 'חוב' };
+        const paid = Math.max(Number(paidAmount) || 0, 0);
+        if (p.status === 'זכות') return { ...p, paidAmount: paid };
+        const capped = Math.min(paid, p.amount);
+        return { ...p, paidAmount: capped, status: capped >= p.amount ? 'שולם' : 'חוב' };
       })};
     }));
   }
@@ -650,7 +652,9 @@ export default function App() {
                             </td>
                             <td className="py-2 text-left">
                               <div className="flex items-center gap-1 justify-end">
-                                {p.status === 'שולם'
+                                {p.status === 'זכות'
+                                  ? <button onClick={() => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, payments: t.payments.map(x => x.id !== p.id ? x : { ...x, status: 'חוב', paidAmount: 0 }) }))} className="text-xs text-gray-400 hover:text-red-400 border border-gray-200 hover:border-red-200 px-2 py-0.5 rounded-full transition whitespace-nowrap">בטל זכות</button>
+                                  : p.status === 'שולם'
                                   ? <button onClick={() => togglePayment(p.id)} className="text-xs text-gray-400 hover:text-red-400 border border-gray-200 hover:border-red-200 px-2 py-0.5 rounded-full transition">בטל</button>
                                   : <button onClick={() => togglePayment(p.id)} className="text-xs text-green-600 border border-green-200 hover:bg-green-50 px-2 py-0.5 rounded-full transition whitespace-nowrap">שולם מלא</button>
                                 }
