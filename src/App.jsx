@@ -947,8 +947,7 @@ export default function App() {
               <h2 className="text-xl font-bold text-gray-800">הוצאות חריגות</h2>
               <button onClick={() => {
                 const { month: curM, year: curY } = getCurrentHebrewDate();
-                const curD = parseInt(new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric' }).format(new Date()));
-                const newExp = { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, hebrewDay: curD, hebrewMonth: curM, hebrewYear: curY, note: '' };
+                const newExp = { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, hebrewDay: '', hebrewMonth: curM, hebrewYear: curY, note: '' };
                 setSettings(s => ({ ...s, extraordinaryExpenses: [...(s.extraordinaryExpenses || []), newExp] }));
               }} className="flex items-center gap-2 bg-teal-700 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-teal-600 transition">
                 <Plus size={14} /> הוסף הוצאה
@@ -979,8 +978,8 @@ export default function App() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1 flex-wrap">
-                              <input type="number" min="1" max="30" value={exp.hebrewDay || ''}
-                                onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewDay:Number(e.target.value)} : x) }))}
+                              <input type="text" value={exp.hebrewDay || ''}
+                                onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewDay:e.target.value} : x) }))}
                                 placeholder="יום"
                                 className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400 w-12 text-center" />
                               <select value={exp.hebrewMonth || ''}
