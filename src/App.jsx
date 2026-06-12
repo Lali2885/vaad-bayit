@@ -43,55 +43,6 @@ function getCurrentHebrewDate() {
   return { month: months[numericMonth - 1], year: numericToHebrewYear(numericYear), numericYear };
 }
 
-const _hebrewDateFmt = new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric', month: 'numeric', year: 'numeric' });
-
-function hebrewYearStrToNumeric(str) {
-  const { numericYear } = getCurrentHebrewDate();
-  for (let y = numericYear - 20; y <= numericYear + 20; y++) {
-    if (numericToHebrewYear(y) === str) return y;
-  }
-  return null;
-}
-
-function gregorianToHebrewDate(date) {
-  const parts = _hebrewDateFmt.formatToParts(date);
-  const numY = parseInt(parts.find(p => p.type === 'year')?.value);
-  const numM = parseInt(parts.find(p => p.type === 'month')?.value);
-  const numD = parseInt(parts.find(p => p.type === 'day')?.value);
-  const isLeap = ((7 * numY) + 1) % 19 < 7;
-  const months = isLeap
-    ? ['תשרי','חשוון','כסלו','טבת','שבט','אדר א׳','אדר ב׳','ניסן','אייר','סיוון','תמוז','אב','אלול']
-    : ['תשרי','חשוון','כסלו','טבת','שבט','אדר','ניסן','אייר','סיוון','תמוז','אב','אלול'];
-  let month = months[numM - 1] || '';
-  if (month === 'אדר א׳') month = 'אדר';
-  if (month === 'אדר ב׳') month = 'אדר';
-  return { day: numD, month, year: numericToHebrewYear(numY) };
-}
-
-function hebrewDateToGregorian(hDay, hMonth, hYearStr) {
-  const numericYear = hebrewYearStrToNumeric(hYearStr);
-  if (!numericYear || !hDay || !hMonth) return null;
-  const isLeap = ((7 * numericYear) + 1) % 19 < 7;
-  const months = isLeap
-    ? ['תשרי','חשוון','כסלו','טבת','שבט','אדר א׳','אדר ב׳','ניסן','אייר','סיוון','תמוז','אב','אלול']
-    : ['תשרי','חשוון','כסלו','טבת','שבט','אדר','ניסן','אייר','סיוון','תמוז','אב','אלול'];
-  const monthName = (isLeap && hMonth === 'אדר') ? 'אדר א׳' : hMonth;
-  const monthIdx = months.indexOf(monthName); // 0-based
-  if (monthIdx === -1) return null;
-  const targetNumMonth = monthIdx + 1;
-  // Estimate target date: Tishri 1 is ~Sep 1 of (numericYear-3761), each month ~29.5 days
-  const approxMs = new Date(numericYear - 3761, 8, 1).getTime() + monthIdx * 29.5 * 86400000 + (hDay - 1) * 86400000;
-  // Search ±40 days around estimate
-  for (let offset = -40; offset <= 40; offset++) {
-    const candidate = new Date(approxMs + offset * 86400000);
-    const parts = _hebrewDateFmt.formatToParts(candidate);
-    const pY = parseInt(parts.find(p => p.type === 'year')?.value);
-    const pM = parseInt(parts.find(p => p.type === 'month')?.value);
-    const pD = parseInt(parts.find(p => p.type === 'day')?.value);
-    if (pY === numericYear && pM === targetNumMonth && pD === hDay) return candidate;
-  }
-  return null;
-}
 
 const { year: CURRENT_HEBREW_YEAR } = getCurrentHebrewDate();
 const HEBREW_YEARS = (() => {
@@ -99,76 +50,6 @@ const HEBREW_YEARS = (() => {
   return [numericYear - 1, numericYear, numericYear + 1, numericYear + 2].map(numericToHebrewYear);
 })();
 
-const _todayHebFmt = new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric' });
-
-function HebrewCalendarPicker({ day, month, year, onChange, onClose }) {
-  const { numericYear: initNumY } = getCurrentHebrewDate();
-  const [navNumYear, setNavNumYear] = useState(() => hebrewYearStrToNumeric(year) || initNumY);
-  const [navMonthIdx, setNavMonthIdx] = useState(() => Math.max(0, TWELVE_MONTHS.indexOf(month)));
-
-  const navMonthName = TWELVE_MONTHS[navMonthIdx];
-  const navYearStr = numericToHebrewYear(navNumYear);
-
-  function navigate(dir) {
-    let idx = navMonthIdx + dir;
-    let y = navNumYear;
-    if (idx < 0)  { idx = 11; y--; }
-    if (idx > 11) { idx = 0;  y++; }
-    setNavMonthIdx(idx);
-    setNavNumYear(y);
-  }
-
-  const firstG    = hebrewDateToGregorian(1, navMonthName, navYearStr);
-  const firstDow  = firstG ? firstG.getDay() : 0;          // 0=Sun … 6=Sat
-  const has30     = !!hebrewDateToGregorian(30, navMonthName, navYearStr);
-  const totalDays = has30 ? 30 : 29;
-
-  const { month: todayM, year: todayY } = getCurrentHebrewDate();
-  const todayD = parseInt(_todayHebFmt.format(new Date()));
-
-  // flat cells: nulls for padding, then 1..totalDays
-  const cells = [...Array(firstDow).fill(null), ...Array.from({ length: totalDays }, (_, i) => i + 1)];
-
-  const DAY_HEADS = ['א','ב','ג','ד','ה','ו','ש'];
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-2xl shadow-xl p-3 w-56 select-none" dir="rtl">
-      <div className="flex items-center justify-between mb-2">
-        <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-teal-600 px-1 text-lg leading-none">‹</button>
-        <span className="text-sm font-bold text-teal-800">{navMonthName} {navYearStr}</span>
-        <button onClick={() => navigate(1)}  className="text-gray-400 hover:text-teal-600 px-1 text-lg leading-none">›</button>
-      </div>
-
-      <div className="grid grid-cols-7 mb-1">
-        {DAY_HEADS.map((h, i) => (
-          <div key={h} className={`text-center text-xs font-semibold py-0.5 ${i === 6 ? 'text-blue-400' : 'text-gray-400'}`}>{h}</div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-7">
-        {Array.from({ length: Math.ceil(cells.length / 7) * 7 }, (_, i) => {
-          const d = cells[i] ?? null;
-          const isSelected = d && d === day && navMonthName === month && navYearStr === year;
-          const isToday    = d && d === todayD && navMonthName === todayM && navYearStr === todayY;
-          const isShabat   = i % 7 === 6;
-          return (
-            <button key={i} disabled={!d}
-              onClick={() => { if (d) { onChange(d, navMonthName, navYearStr); onClose(); } }}
-              className={[
-                'text-xs py-1 rounded-full mx-px my-px transition leading-none',
-                !d         ? 'invisible pointer-events-none' : '',
-                isSelected ? 'bg-teal-600 text-white font-bold' : '',
-                isToday && !isSelected ? 'border border-teal-400 text-teal-700 font-bold' : '',
-                !isSelected && !isToday && d ? (isShabat ? 'text-blue-400 hover:bg-blue-50' : 'text-gray-700 hover:bg-gray-100') : '',
-              ].join(' ')}>
-              {d || ''}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 const TENANTS_VERSION = 'v5-apt1-paid';
 
@@ -233,7 +114,7 @@ const INITIAL_TENANTS = [
   { id: 13, name: 'דירה ליוי',        apt: '13', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 40, owner: 'ליוי', payments: [], charges: [] },
   { id: 14, name: 'דירה ליוי',        apt: '14', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 40, owner: 'ליוי', payments: [], charges: [] },
   { id: 15, name: 'דירה הלמן',        apt: '15', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 40, owner: 'הלמן', payments: [], charges: [] },
-  { id: 16, name: 'דירה קטנה פריד',  apt: '16', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 40, owner: 'פריד', payments: [], charges: [] },
+  { id: 16, name: 'דירה קטנה פריד',  apt: '16', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 60, feePercent: 75, owner: 'פריד', payments: [], charges: [] },
   { id: 17, name: 'דירה גדולה פריד', apt: '17', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 40, owner: 'פריד', payments: [], charges: [] },
 ];
 
@@ -267,8 +148,6 @@ export default function App() {
   const [tenantMsgText, setTenantMsgText] = useState('');
   const logoInputRef = useRef(null);
   const dataLoadedForUser = useRef(null);
-  const [expPickerId, setExpPickerId] = useState(null);
-  const [expPickerPos, setExpPickerPos] = useState({ top: 0, left: 0 });
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
@@ -429,15 +308,18 @@ export default function App() {
     if (!confirm(`לעדכן את כל הדיירים לתעריף ${amount}₪ החל מ-${fromMonth}?`)) return;
     const yearRank = y => HEBREW_YEARS.indexOf(y);
     const monthRank = m => TWELVE_MONTHS.indexOf(m);
-    setTenants(prev => prev.map(t => ({
-      ...t,
-      monthlyRent: amount,
-      payments: t.payments.map(p => {
-        const afterYear = yearRank(p.hebrewYear) > yearRank(fromYear);
-        const sameYearAfterMonth = yearRank(p.hebrewYear) === yearRank(fromYear) && monthRank(p.hebrewMonth) >= monthRank(fromMonth);
-        return p.status === 'חוב' && (afterYear || sameYearAfterMonth) ? { ...p, amount } : p;
-      }),
-    })));
+    setTenants(prev => prev.map(t => {
+      const tenantAmount = Math.round(amount * (Number(t.feePercent || 100) / 100));
+      return {
+        ...t,
+        monthlyRent: tenantAmount,
+        payments: t.payments.map(p => {
+          const afterYear = yearRank(p.hebrewYear) > yearRank(fromYear);
+          const sameYearAfterMonth = yearRank(p.hebrewYear) === yearRank(fromYear) && monthRank(p.hebrewMonth) >= monthRank(fromMonth);
+          return p.status === 'חוב' && (afterYear || sameYearAfterMonth) ? { ...p, amount: tenantAmount } : p;
+        }),
+      };
+    }));
   }
 
   function handleLogoUpload(e) {
@@ -518,7 +400,9 @@ export default function App() {
   }
 
   function addPaymentDirect(month, year) {
-    const amount = getFeeForMonth(month, year);
+    const tenant = tenants.find(t => t.id === selectedId);
+    const baseAmount = getFeeForMonth(month, year);
+    const amount = Math.round(baseAmount * (Number(tenant?.feePercent || 100) / 100));
     const { month: curMonth, year: curYear } = getCurrentHebrewDate();
     const isFuture = year === curYear && TWELVE_MONTHS.indexOf(month) > TWELVE_MONTHS.indexOf(curMonth);
     const status = isFuture ? 'זכות' : 'חוב';
@@ -647,6 +531,9 @@ export default function App() {
                       {t.apt}
                     </div>
                     <p className="font-bold text-sm text-gray-800">{t.name}</p>
+                    {t.feePercent && Number(t.feePercent) !== 100 && (
+                      <span className="text-[10px] text-amber-600 font-medium bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full mt-1">{t.feePercent}%</span>
+                    )}
                     <div className="flex flex-col items-center gap-0.5 mt-2">
                       {debt > 0 && (
                         <div className="flex items-center justify-center gap-1 text-xs font-semibold text-red-500">
@@ -949,6 +836,46 @@ export default function App() {
                   <p className={`text-4xl font-bold my-2 ${calcDebt(selectedTenant)>0?'text-red-600':'text-green-600'}`}>{calcDebt(selectedTenant).toLocaleString()}₪</p>
                   <div className="w-14 h-14 bg-teal-50 rounded-full flex items-center justify-center text-xl font-bold text-teal-800 mx-auto">{selectedTenant.apt}</div>
                 </div>
+
+                {(() => {
+                  const { month: curM, year: curY } = getCurrentHebrewDate();
+                  const baseFee = getFeeForMonth(curM, curY);
+                  const pct = Number(selectedTenant.feePercent || 100);
+                  const effective = Math.round(baseFee * pct / 100);
+                  return (
+                    <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                      <h4 className="font-bold text-sm text-teal-800 mb-3">תעריף גבייה</h4>
+                      <div className="space-y-2.5 text-sm">
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-500">תעריף בסיס</span>
+                          <span className="font-medium text-gray-700">{baseFee.toLocaleString()}₪</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-500">אחוז תשלום</span>
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number" min="1" max="100"
+                              value={pct}
+                              onFocus={e => e.target.select()}
+                              onChange={e => {
+                                const newPct = Math.min(100, Math.max(1, Number(e.target.value) || 100));
+                                const newRent = Math.round(baseFee * newPct / 100);
+                                setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, feePercent: newPct, monthlyRent: newRent }));
+                              }}
+                              className="border border-gray-200 rounded-lg px-2 py-1 text-xs w-14 text-center focus:outline-none focus:ring-1 focus:ring-teal-400"
+                            />
+                            <span className="text-xs text-gray-400">%</span>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center border-t pt-2.5">
+                          <span className="text-gray-500 font-medium">לתשלום בפועל</span>
+                          <span className="font-bold text-teal-700 text-base">{effective.toLocaleString()}₪</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 <div className="bg-white p-5 rounded-2xl border shadow-sm space-y-2">
                   <h4 className="font-bold text-base text-teal-800 mb-3">פעולות</h4>
                   <button className="w-full bg-teal-700 hover:bg-teal-600 text-white py-2.5 rounded-xl text-sm font-bold transition">תשלום גבייה</button>
@@ -976,7 +903,7 @@ export default function App() {
                 {[{label:'שם מלא',key:'name'},{label:'מספר דירה',key:'apt'},{label:'בעל הדירה',key:'owner'},{label:'תעודת זהות',key:'idCard'},{label:'מייל',key:'email'},{label:'טלפון',key:'phone'},{label:'תאריך חיוב',key:'dueDate'},{label:'שכ"ד חודשי (₪)',key:'monthlyRent'}].map(({label,key}) => (
                   <div key={key}>
                     <label className="text-[10px] text-gray-400 block mb-1">{label}</label>
-                    <input value={newTenant[key]} onChange={e => setNewTenant(d => ({...d,[key]:e.target.value}))}
+                    <input value={newTenant[key] ?? ''} onChange={e => setNewTenant(d => ({...d,[key]:e.target.value}))}
                       className="w-full p-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-1 focus:ring-teal-400"
                       type={key==='monthlyRent'?'number':'text'} />
                   </div>
@@ -995,7 +922,7 @@ export default function App() {
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-gray-800">הוצאות חריגות</h2>
               <button onClick={() => {
-                const { month: curM, year: curY, numericYear: curNY } = getCurrentHebrewDate();
+                const { month: curM, year: curY } = getCurrentHebrewDate();
                 const curD = parseInt(new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric' }).format(new Date()));
                 const newExp = { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, hebrewDay: curD, hebrewMonth: curM, hebrewYear: curY, note: '' };
                 setSettings(s => ({ ...s, extraordinaryExpenses: [...(s.extraordinaryExpenses || []), newExp] }));
@@ -1027,19 +954,23 @@ export default function App() {
                               className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full" />
                           </td>
                           <td className="px-4 py-3">
-                            <div className="flex flex-col gap-1.5">
-                              <button
-                                onClick={e => { const r = e.currentTarget.getBoundingClientRect(); setExpPickerPos({ top: r.bottom + 4, left: r.left }); setExpPickerId(expPickerId === exp.id ? null : exp.id); }}
-                                className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white hover:border-teal-400 text-right w-full transition">
-                                {exp.hebrewDay ? `${exp.hebrewDay} ${exp.hebrewMonth} ${exp.hebrewYear}` : 'בחר תאריך עברי'}
-                              </button>
-                              <div className="flex items-center gap-1">
-                                <span className="text-xs text-gray-400 shrink-0">לועזי:</span>
-                                <input type="date"
-                                  value={(() => { const g = hebrewDateToGregorian(exp.hebrewDay, exp.hebrewMonth, exp.hebrewYear); return g ? `${g.getFullYear()}-${String(g.getMonth()+1).padStart(2,'0')}-${String(g.getDate()).padStart(2,'0')}` : ''; })()}
-                                  onChange={e => { if (!e.target.value) return; const h = gregorianToHebrewDate(new Date(e.target.value + 'T12:00:00')); setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewDay:h.day,hebrewMonth:h.month,hebrewYear:h.year} : x) })); }}
-                                  className="text-xs text-gray-600 border border-gray-200 rounded-lg px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white" />
-                              </div>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <input type="number" min="1" max="30" value={exp.hebrewDay || ''}
+                                onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewDay:Number(e.target.value)} : x) }))}
+                                placeholder="יום"
+                                className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400 w-12 text-center" />
+                              <select value={exp.hebrewMonth || ''}
+                                onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewMonth:e.target.value} : x) }))}
+                                className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400">
+                                <option value="">חודש</option>
+                                {TWELVE_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+                              </select>
+                              <select value={exp.hebrewYear || ''}
+                                onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewYear:e.target.value} : x) }))}
+                                className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400">
+                                <option value="">שנה</option>
+                                {HEBREW_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+                              </select>
                             </div>
                           </td>
                           <td className="px-4 py-3">
@@ -1265,19 +1196,6 @@ export default function App() {
         )}
       </main>
 
-      {expPickerId && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setExpPickerId(null)} />
-          <div style={{ position: 'fixed', top: expPickerPos.top, left: expPickerPos.left, zIndex: 50 }}>
-            {settings?.extraordinaryExpenses?.filter(e => e.id === expPickerId).map(exp => (
-              <HebrewCalendarPicker key={exp.id}
-                day={exp.hebrewDay} month={exp.hebrewMonth} year={exp.hebrewYear}
-                onChange={(d, m, y) => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewDay:d,hebrewMonth:m,hebrewYear:y} : x) }))}
-                onClose={() => setExpPickerId(null)} />
-            ))}
-          </div>
-        </>
-      )}
 
       {showTenantMsg && selectedTenant && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
