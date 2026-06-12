@@ -860,7 +860,19 @@ export default function App() {
                               onChange={e => {
                                 const newPct = Math.min(100, Math.max(1, Number(e.target.value) || 100));
                                 const newRent = Math.round(baseFee * newPct / 100);
-                                setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, feePercent: newPct, monthlyRent: newRent }));
+                                setTenants(prev => prev.map(t => {
+                                  if (t.id !== selectedId) return t;
+                                  return {
+                                    ...t,
+                                    feePercent: newPct,
+                                    monthlyRent: newRent,
+                                    payments: t.payments.map(p => {
+                                      if (p.status === 'שולם') return p;
+                                      const baseForMonth = getFeeForMonth(p.hebrewMonth, p.hebrewYear);
+                                      return { ...p, amount: Math.round(baseForMonth * newPct / 100) };
+                                    }),
+                                  };
+                                }));
                               }}
                               className="border border-gray-200 rounded-lg px-2 py-1 text-xs w-14 text-center focus:outline-none focus:ring-1 focus:ring-teal-400"
                             />
