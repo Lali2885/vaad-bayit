@@ -128,7 +128,7 @@ function calcCredit(tenant) {
   return tenant.payments.filter(p => p.status === 'זכות').reduce((sum, p) => sum + (p.paidAmount || 0), 0);
 }
 
-const EMPTY_TENANT = { name: '', apt: '', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 0, owner: '', payments: [], charges: [] };
+const EMPTY_TENANT = { name: '', apt: '', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 0, owner: '', payments: [], charges: [], notes: '' };
 
 export default function App() {
   const [tenants, setTenants] = useState(null);
@@ -828,6 +828,18 @@ export default function App() {
                     </div>
                   </div>
                 )}
+
+                <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                  <h4 className="font-bold text-base text-teal-800 mb-3">הערות</h4>
+                  <textarea
+                    value={selectedTenant.notes || ''}
+                    onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, notes: e.target.value }))}
+                    placeholder="הערות חשובות לגבי הדייר..."
+                    rows={4}
+                    className="w-full border border-gray-200 rounded-xl p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-teal-400 text-gray-700 placeholder-gray-300"
+                    dir="rtl"
+                  />
+                </div>
               </div>
 
               <div className="space-y-5">
