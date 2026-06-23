@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Home, ReceiptText, Building, ChevronRight, Mail, Bell, Plus, Pencil, Trash2, X, Check, Settings, Upload, ImageOff, MessageSquare, Banknote, LogOut } from 'lucide-react';
+import emailjs from '@emailjs/browser';
 import { supabase, testConnection } from './supabase';
 
 const INITIAL_SETTINGS = {
@@ -16,6 +17,13 @@ const INITIAL_SETTINGS = {
     { id: 2, name: 'מכתב לדיירים', body: 'לכבוד דיירי הבניין,\n\nנשמח להודיעכם כי...\n\nבברכה,\n{מנהל}\n{טלפון}' },
   ],
   extraordinaryExpenses: [],
+  emailSettings: {
+    senderName: 'ועד הבית',
+    senderEmail: '',
+    serviceId: '',
+    templateId: '',
+    publicKey: '',
+  },
 };
 
 const HEBREW_MONTHS = ['תשרי','חשוון','כסלו','טבת','שבט','אדר','אדר א׳','אדר ב׳','ניסן','אייר','סיוון','תמוז','אב','אלול'];
@@ -156,6 +164,10 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const [dbError, setDbError] = useState(null);
+  const [isSending, setIsSending] = useState(false);
+  const [sendResult, setSendResult] = useState(null);
+  const [emailSubject, setEmailSubject] = useState('');
+  const [tenantMsgSubject, setTenantMsgSubject] = useState('');
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -238,6 +250,7 @@ export default function App() {
         if (!p.templates) p.templates = INITIAL_SETTINGS.templates;
         if (!p.feeHistory) p.feeHistory = INITIAL_SETTINGS.feeHistory;
         if (!p.extraordinaryExpenses) p.extraordinaryExpenses = [];
+        if (!p.emailSettings) p.emailSettings = INITIAL_SETTINGS.emailSettings;
         loadedSettings = { ...INITIAL_SETTINGS, ...p };
       } else {
         loadedSettings = INITIAL_SETTINGS;
@@ -290,6 +303,22 @@ export default function App() {
       } catch (e) {}
     }
     await supabase.auth.signOut();
+  }
+
+  async function sendEmail(toEmail, subject, message) {
+    const es = settings.emailSettings || {};
+    if (!es.serviceId || !es.templateId || !es.publicKey) {
+      alert('חסרות הגדרות מייל — אנא מלאי פרטי EmailJS בהגדרות המערכת.');
+      return false;
+    }
+    await emailjs.send(es.serviceId, es.templateId, {
+      to_email: toEmail,
+      subject: subject || 'הודעה מועד הבית',
+      message,
+      from_name: es.senderName || 'ועד הבית',
+      reply_to: es.senderEmail || '',
+    }, es.publicKey);
+    return true;
   }
 
   function openSettings() {
@@ -1186,6 +1215,31 @@ export default function App() {
                 </table>
               </div>
 
+              {/* Email Settings */}
+              <div className="bg-white p-6 rounded-2xl border shadow-sm">
+                <h3 className="font-bold text-base text-teal-800 mb-1">הגדרות מייל</h3>
+                <p className="text-xs text-gray-400 mb-4">פרטי EmailJS לשליחת מיילים מהמערכת</p>
+                <div className="grid grid-cols-2 gap-4">
+                  {[
+                    { label: 'שם השולח', key: 'senderName', placeholder: 'ועד הבית' },
+                    { label: 'מייל השולח (לתצוגה)', key: 'senderEmail', placeholder: 'vaad@gmail.com' },
+                    { label: 'Service ID', key: 'serviceId', placeholder: 'vaad-gmail' },
+                    { label: 'Template ID', key: 'templateId', placeholder: 'template_xxxxxxx' },
+                    { label: 'Public Key', key: 'publicKey', placeholder: 'xxxxxxxxxxxxxxxxx' },
+                  ].map(({ label, key, placeholder }) => (
+                    <div key={key} className={key === 'publicKey' ? 'col-span-2' : ''}>
+                      <label className="text-[10px] text-gray-400 block mb-1">{label}</label>
+                      <input
+                        value={(settingsData.emailSettings || {})[key] || ''}
+                        onChange={e => setSettingsData(d => ({ ...d, emailSettings: { ...(d.emailSettings || {}), [key]: e.target.value } }))}
+                        placeholder={placeholder}
+                        className="w-full p-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-1 focus:ring-teal-400"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               {/* Templates */}
               <div className="bg-white p-6 rounded-2xl border shadow-sm">
                 <div className="flex justify-between items-center mb-1">
@@ -1254,9 +1308,17 @@ export default function App() {
               </div>
             )}
 
+            <div className="mb-3">
+              <label className="text-[10px] text-gray-400 block mb-1">נושא</label>
+              <input value={tenantMsgSubject} onChange={e => setTenantMsgSubject(e.target.value)} placeholder="נושא ההודעה"
+                className="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-teal-400" dir="rtl" />
+            </div>
             <textarea value={tenantMsgText} onChange={e => setTenantMsgText(e.target.value)}
               placeholder="כתוב את ההודעה כאן..."
               className="w-full border rounded-xl p-3 text-sm h-40 resize-none focus:outline-none focus:ring-1 focus:ring-teal-400" dir="rtl" />
+            {!selectedTenant?.email && (
+              <p className="text-xs text-orange-500 mt-2">לדייר זה אין כתובת מייל — הוסיפי בפרטי הדייר</p>
+            )}
 
             {(selectedTenant.phone || selectedTenant.email) && (
               <div className="mt-3 p-3 bg-gray-50 rounded-xl text-xs text-gray-500 space-y-1">
@@ -1265,11 +1327,24 @@ export default function App() {
               </div>
             )}
 
+            {sendResult && (
+              <p className={`text-xs mt-3 font-medium ${sendResult.ok ? 'text-green-600' : 'text-red-500'}`}>{sendResult.msg}</p>
+            )}
             <div className="flex gap-2 mt-4 justify-end">
-              <button onClick={() => setShowTenantMsg(false)} className="border px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">ביטול</button>
-              <button onClick={() => { alert(`ההודעה נשלחה ל-${selectedTenant.name}!`); setShowTenantMsg(false); setTenantMsgText(''); }}
-                className="bg-sky-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-sky-700 transition flex items-center gap-1">
-                <Mail size={14} /> שלח
+              <button onClick={() => { setShowTenantMsg(false); setSendResult(null); }} className="border px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">ביטול</button>
+              <button disabled={isSending || !tenantMsgText.trim() || !selectedTenant?.email}
+                onClick={async () => {
+                  setIsSending(true);
+                  setSendResult(null);
+                  try {
+                    await sendEmail(selectedTenant.email, tenantMsgSubject, tenantMsgText);
+                    setSendResult({ ok: true, msg: `נשלח בהצלחה ל-${selectedTenant.name}!` });
+                    setTimeout(() => { setShowTenantMsg(false); setTenantMsgText(''); setTenantMsgSubject(''); setSendResult(null); }, 1500);
+                  } catch { setSendResult({ ok: false, msg: 'שגיאה בשליחה — בדקי הגדרות מייל' }); }
+                  setIsSending(false);
+                }}
+                className="bg-sky-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-sky-700 transition flex items-center gap-1 disabled:opacity-50">
+                {isSending ? 'שולח...' : <><Mail size={14} /> שלח</>}
               </button>
             </div>
           </div>
@@ -1281,13 +1356,42 @@ export default function App() {
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-teal-800">שליחת הודעה לכל הדיירים</h3>
-              <button onClick={() => setShowEmailModal(false)}><X size={20} className="text-gray-500 hover:text-gray-700" /></button>
+              <button onClick={() => { setShowEmailModal(false); setSendResult(null); }}><X size={20} className="text-gray-500 hover:text-gray-700" /></button>
+            </div>
+            <div className="mb-3">
+              <label className="text-[10px] text-gray-400 block mb-1">נושא</label>
+              <input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} placeholder="נושא ההודעה"
+                className="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-teal-400" dir="rtl" />
             </div>
             <textarea value={emailText} onChange={e => setEmailText(e.target.value)} placeholder="כתוב את ההודעה כאן..."
               className="w-full border rounded-xl p-3 text-sm h-32 resize-none focus:outline-none focus:ring-1 focus:ring-teal-400" dir="rtl" />
+            <p className="text-xs text-gray-400 mt-2">
+              ישלח ל-{tenants.filter(t => t.email).length} דיירים עם כתובת מייל
+            </p>
+            {sendResult && (
+              <p className={`text-xs mt-2 font-medium ${sendResult.ok ? 'text-green-600' : 'text-red-500'}`}>{sendResult.msg}</p>
+            )}
             <div className="flex gap-2 mt-4 justify-end">
-              <button onClick={() => setShowEmailModal(false)} className="border px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">ביטול</button>
-              <button onClick={() => { alert('ההודעה נשלחה!'); setShowEmailModal(false); setEmailText(''); }} className="bg-sky-500 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-sky-600 transition">שלח</button>
+              <button onClick={() => { setShowEmailModal(false); setSendResult(null); }} className="border px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">ביטול</button>
+              <button disabled={isSending || !emailText.trim()} onClick={async () => {
+                setIsSending(true);
+                setSendResult(null);
+                const targets = tenants.filter(t => t.email);
+                let ok = 0, fail = 0;
+                for (const t of targets) {
+                  try {
+                    await sendEmail(t.email, emailSubject, emailText);
+                    ok++;
+                  } catch { fail++; }
+                }
+                setIsSending(false);
+                setSendResult(fail === 0
+                  ? { ok: true, msg: `נשלח בהצלחה ל-${ok} דיירים!` }
+                  : { ok: false, msg: `נשלח ל-${ok}, נכשל ל-${fail}` });
+                if (fail === 0) { setTimeout(() => { setShowEmailModal(false); setEmailText(''); setEmailSubject(''); setSendResult(null); }, 1500); }
+              }} className="bg-sky-500 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-sky-600 transition disabled:opacity-50 flex items-center gap-1">
+                {isSending ? 'שולח...' : <><Mail size={14} /> שלח</>}
+              </button>
             </div>
           </div>
         </div>
