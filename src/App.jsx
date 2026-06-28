@@ -60,13 +60,13 @@ function getCurrentHebrewDate() {
 const { year: CURRENT_HEBREW_YEAR } = getCurrentHebrewDate();
 const HEBREW_YEARS = (() => {
   const { numericYear } = getCurrentHebrewDate();
-  return [numericYear - 1, numericYear, numericYear + 1, numericYear + 2].map(numericToHebrewYear);
+  return [numericYear - 3, numericYear - 2, numericYear - 1, numericYear, numericYear + 1, numericYear + 2].map(numericToHebrewYear);
 })();
 
 const HEBREW_YEAR_TO_NUMERIC = (() => {
   const { numericYear } = getCurrentHebrewDate();
   return Object.fromEntries(
-    [numericYear - 1, numericYear, numericYear + 1, numericYear + 2].map(n => [numericToHebrewYear(n), n])
+    [numericYear - 3, numericYear - 2, numericYear - 1, numericYear, numericYear + 1, numericYear + 2].map(n => [numericToHebrewYear(n), n])
   );
 })();
 
