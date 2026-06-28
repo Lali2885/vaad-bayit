@@ -16,6 +16,9 @@ const INITIAL_SETTINGS = {
     { id: 1, name: 'תזכורת תשלום', body: 'שלום {שם},\nזוהי תזכורת לתשלום דמי ועד בית עבור חודש {חודש}.\nסכום לתשלום: {סכום}₪\nאנא שלמו עד תאריך {תאריך}.\nבברכה, {מנהל}' },
     { id: 2, name: 'מכתב לדיירים', body: 'לכבוד דיירי הבניין,\n\nנשמח להודיעכם כי...\n\nבברכה,\n{מנהל}\n{טלפון}' },
   ],
+  electricityExpenses: [],
+  cleaningExpenses: [],
+  regularExpenses: [],
   extraordinaryExpenses: [],
   emailSettings: {
     senderName: 'ועד הבית',
@@ -249,6 +252,9 @@ export default function App() {
         if (!p.managers) p.managers = [{ id: 1, name: '', phone: '', email: '', role: 'יו"ר הוועד' }];
         if (!p.templates) p.templates = INITIAL_SETTINGS.templates;
         if (!p.feeHistory) p.feeHistory = INITIAL_SETTINGS.feeHistory;
+        if (!p.electricityExpenses) p.electricityExpenses = [];
+        if (!p.cleaningExpenses) p.cleaningExpenses = [];
+        if (!p.regularExpenses) p.regularExpenses = [];
         if (!p.extraordinaryExpenses) p.extraordinaryExpenses = [];
         if (!p.emailSettings) p.emailSettings = INITIAL_SETTINGS.emailSettings;
         loadedSettings = { ...INITIAL_SETTINGS, ...p };
@@ -971,94 +977,103 @@ export default function App() {
         )}
 
         {view === 'expenses' && settings && (
-          <div className="max-w-3xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-gray-800">הוצאות חריגות</h2>
-              <button onClick={() => {
-                const { month: curM, year: curY } = getCurrentHebrewDate();
-                const newExp = { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, hebrewDay: '', hebrewMonth: curM, hebrewYear: curY, note: '' };
-                setSettings(s => ({ ...s, extraordinaryExpenses: [...(s.extraordinaryExpenses || []), newExp] }));
-              }} className="flex items-center gap-2 bg-teal-700 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-teal-600 transition">
-                <Plus size={14} /> הוסף הוצאה
-              </button>
-            </div>
-            <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
-              {(!settings.extraordinaryExpenses || settings.extraordinaryExpenses.length === 0)
-                ? <p className="text-center text-gray-400 text-sm py-14">אין הוצאות חריגות. לחצי על "הוסף הוצאה" כדי להתחיל.</p>
-                : <table className="w-full text-sm text-right">
-                    <thead>
-                      <tr className="border-b bg-gray-50 text-gray-500 text-xs">
-                        <th className="px-4 py-3 font-medium">תיאור</th>
-                        <th className="px-4 py-3 font-medium">חודש / שנה</th>
-                        <th className="px-4 py-3 font-medium">סכום כולל</th>
-                        <th className="px-4 py-3 font-medium">חלק לדייר</th>
-                        <th className="px-4 py-3 font-medium">הערה</th>
-                        <th className="px-4 py-3"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {settings.extraordinaryExpenses.map(exp => (
-                        <tr key={exp.id} className="border-b group hover:bg-gray-50/50 transition">
-                          <td className="px-4 py-3">
-                            <input value={exp.description}
-                              onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,description:e.target.value} : x) }))}
-                              placeholder="תיאור ההוצאה"
-                              className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full" />
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-1 flex-wrap">
-                              <input type="text" value={exp.hebrewDay || ''}
-                                onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewDay:e.target.value} : x) }))}
-                                placeholder="יום"
-                                className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400 w-12 text-center" />
-                              <select value={exp.hebrewMonth || ''}
-                                onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewMonth:e.target.value} : x) }))}
-                                className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400">
-                                <option value="">חודש</option>
-                                {TWELVE_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
-                              </select>
-                              <select value={exp.hebrewYear || ''}
-                                onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,hebrewYear:e.target.value} : x) }))}
-                                className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400">
-                                <option value="">שנה</option>
-                                {HEBREW_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
-                              </select>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-1">
-                              <input type="number" value={exp.totalAmount} onFocus={e => e.target.select()}
-                                onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,totalAmount:Number(e.target.value)} : x) }))}
-                                className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
-                              <span className="text-xs text-gray-400">₪</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-1">
-                              <input type="number" value={exp.perTenantAmount} onFocus={e => e.target.select()}
-                                onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,perTenantAmount:Number(e.target.value)} : x) }))}
-                                className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
-                              <span className="text-xs text-gray-400">₪</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <input value={exp.note}
-                              onChange={e => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.map(x => x.id===exp.id ? {...x,note:e.target.value} : x) }))}
-                              placeholder="הערה"
-                              className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full text-gray-500" />
-                          </td>
-                          <td className="px-4 py-3 text-left">
-                            <button onClick={() => setSettings(s => ({ ...s, extraordinaryExpenses: s.extraordinaryExpenses.filter(x => x.id !== exp.id) }))}
-                              className="text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100">
-                              <Trash2 size={14} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-              }
-            </div>
+          <div className="max-w-3xl mx-auto space-y-8">
+            {[
+              { key: 'electricityExpenses', label: 'חשמל' },
+              { key: 'cleaningExpenses', label: 'ניקיון' },
+              { key: 'regularExpenses', label: 'הוצאות שוטפות' },
+              { key: 'extraordinaryExpenses', label: 'הוצאות חריגות' },
+            ].map(({ key, label }) => (
+              <div key={key}>
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-bold text-gray-800">{label}</h2>
+                  <button onClick={() => {
+                    const { month: curM, year: curY } = getCurrentHebrewDate();
+                    const newExp = { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, hebrewDay: '', hebrewMonth: curM, hebrewYear: curY, note: '' };
+                    setSettings(s => ({ ...s, [key]: [...(s[key] || []), newExp] }));
+                  }} className="flex items-center gap-2 bg-teal-700 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-teal-600 transition">
+                    <Plus size={14} /> הוסף הוצאה
+                  </button>
+                </div>
+                <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+                  {(!settings[key] || settings[key].length === 0)
+                    ? <p className="text-center text-gray-400 text-sm py-14">אין הוצאות {label}. לחצי על "הוסף הוצאה" כדי להתחיל.</p>
+                    : <table className="w-full text-sm text-right">
+                        <thead>
+                          <tr className="border-b bg-gray-50 text-gray-500 text-xs">
+                            <th className="px-4 py-3 font-medium">תיאור</th>
+                            <th className="px-4 py-3 font-medium">חודש / שנה</th>
+                            <th className="px-4 py-3 font-medium">סכום כולל</th>
+                            <th className="px-4 py-3 font-medium">חלק לדייר</th>
+                            <th className="px-4 py-3 font-medium">הערה</th>
+                            <th className="px-4 py-3"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {settings[key].map(exp => (
+                            <tr key={exp.id} className="border-b group hover:bg-gray-50/50 transition">
+                              <td className="px-4 py-3">
+                                <input value={exp.description}
+                                  onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,description:e.target.value} : x) }))}
+                                  placeholder="תיאור ההוצאה"
+                                  className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full" />
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  <input type="text" value={exp.hebrewDay || ''}
+                                    onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,hebrewDay:e.target.value} : x) }))}
+                                    placeholder="יום"
+                                    className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400 w-12 text-center" />
+                                  <select value={exp.hebrewMonth || ''}
+                                    onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,hebrewMonth:e.target.value} : x) }))}
+                                    className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400">
+                                    <option value="">חודש</option>
+                                    {TWELVE_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+                                  </select>
+                                  <select value={exp.hebrewYear || ''}
+                                    onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,hebrewYear:e.target.value} : x) }))}
+                                    className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400">
+                                    <option value="">שנה</option>
+                                    {HEBREW_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+                                  </select>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1">
+                                  <input type="number" value={exp.totalAmount} onFocus={e => e.target.select()}
+                                    onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,totalAmount:Number(e.target.value)} : x) }))}
+                                    className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
+                                  <span className="text-xs text-gray-400">₪</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1">
+                                  <input type="number" value={exp.perTenantAmount} onFocus={e => e.target.select()}
+                                    onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,perTenantAmount:Number(e.target.value)} : x) }))}
+                                    className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
+                                  <span className="text-xs text-gray-400">₪</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <input value={exp.note}
+                                  onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,note:e.target.value} : x) }))}
+                                  placeholder="הערה"
+                                  className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full text-gray-500" />
+                              </td>
+                              <td className="px-4 py-3 text-left">
+                                <button onClick={() => setSettings(s => ({ ...s, [key]: s[key].filter(x => x.id !== exp.id) }))}
+                                  className="text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100">
+                                  <Trash2 size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                  }
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
