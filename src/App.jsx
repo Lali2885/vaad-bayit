@@ -51,7 +51,9 @@ function getCurrentHebrewDate() {
   const months = isLeap
     ? ['תשרי','חשוון','כסלו','טבת','שבט','אדר א׳','אדר ב׳','ניסן','אייר','סיוון','תמוז','אב','אלול']
     : ['תשרי','חשוון','כסלו','טבת','שבט','אדר','ניסן','אייר','סיוון','תמוז','אב','אלול'];
-  return { month: months[numericMonth - 1], year: numericToHebrewYear(numericYear), numericYear };
+  const numericDay = parseInt(new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric' }).format(now));
+  const hebDays = ['א','ב','ג','ד','ה','ו','ז','ח','ט','י','יא','יב','יג','יד','טו','טז','יז','יח','יט','כ','כא','כב','כג','כד','כה','כו','כז','כח','כט','ל'];
+  return { month: months[numericMonth - 1], year: numericToHebrewYear(numericYear), numericYear, day: hebDays[numericDay - 1] || '' };
 }
 
 
@@ -193,8 +195,9 @@ const MONTH_DAYS = {'תשרי':30,'חשוון':29,'כסלו':30,'טבת':29,'ש�
 
 function HebrewDatePicker({ day, month, year, onChange }) {
   const [open, setOpen] = useState(false);
-  const [navMonth, setNavMonth] = useState(month || TWELVE_MONTHS[0]);
-  const [navYear, setNavYear] = useState(year || HEBREW_YEARS[1]);
+  const todayHeb = getCurrentHebrewDate();
+  const [navMonth, setNavMonth] = useState(month || todayHeb.month);
+  const [navYear, setNavYear] = useState(year || todayHeb.year);
   const [mode, setMode] = useState('day');
   const ref = useRef(null);
 
@@ -231,7 +234,7 @@ function HebrewDatePicker({ day, month, year, onChange }) {
   return (
     <div className="relative" ref={ref}>
       <button type="button"
-        onClick={() => { setNavMonth(month || TWELVE_MONTHS[0]); setNavYear(year || HEBREW_YEARS[1]); setMode('day'); setOpen(o => !o); }}
+        onClick={() => { setNavMonth(month || todayHeb.month); setNavYear(year || todayHeb.year); setMode('day'); setOpen(o => !o); }}
         className="text-xs border border-gray-200 rounded-lg px-2 py-1 hover:border-teal-400 focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white text-right whitespace-nowrap">
         {label}
       </button>
@@ -1155,8 +1158,8 @@ export default function App() {
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-xl font-bold text-gray-800">{label}</h2>
                   <button onClick={() => {
-                    const { month: curM, year: curY } = getCurrentHebrewDate();
-                    const newExp = { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, hebrewDay: '', hebrewMonth: curM, hebrewYear: curY, note: '' };
+                    const { month: curM, year: curY, day: curD } = getCurrentHebrewDate();
+                    const newExp = { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, hebrewDay: curD, hebrewMonth: curM, hebrewYear: curY, note: '' };
                     setSettings(s => ({ ...s, [key]: [...(s[key] || []), newExp] }));
                   }} className="flex items-center gap-2 bg-teal-700 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-teal-600 transition">
                     <Plus size={14} /> הוסף הוצאה
