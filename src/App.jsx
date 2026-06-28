@@ -1778,50 +1778,64 @@ export default function App() {
             <h3 className="text-lg font-bold text-gray-800 mb-1">שלוף לדירות נבחרות</h3>
             <p className="text-sm text-gray-500 mb-4">{selectExpModal.description || 'הוצאה חריגה'} — {(selectExpModal.perTenantAmount||0).toLocaleString()}₪ לדייר</p>
             <div className="overflow-y-auto flex-1 divide-y divide-gray-100 mb-4">
-              {(tenants||[]).map(t => {
-                const alreadyApplied = (t.charges||[]).some(c => c.expenseId === selectExpModal.expId);
+              {(() => {
+                const available = (tenants||[]).filter(t => !(t.charges||[]).some(c => c.expenseId === selectExpModal.expId));
+                const allSelected = available.length > 0 && available.every(t => selectedTenantIds.has(t.id));
                 return (
-                  <label key={t.id} className={`flex items-center gap-3 py-2.5 ${alreadyApplied ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50'}`}>
-                    <input type="checkbox"
-                      checked={selectedTenantIds.has(t.id) || alreadyApplied}
-                      disabled={alreadyApplied}
-                      onChange={() => {
-                        if (alreadyApplied) return;
-                        setSelectedTenantIds(prev => {
-                          const next = new Set(prev);
-                          if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
-                          return next;
-                        });
-                      }}
-                      className="w-4 h-4 accent-purple-500" />
-                    <span className="text-sm font-medium text-gray-700">דירה {t.apartment}</span>
-                    <span className="text-sm text-gray-500">{t.name}</span>
-                    {alreadyApplied && <span className="text-xs text-gray-400 mr-auto">שולף</span>}
-                  </label>
+                  <>
+                    <label className="flex items-center gap-3 py-2.5 cursor-pointer hover:bg-gray-50 font-semibold text-gray-700">
+                      <input type="checkbox"
+                        checked={allSelected}
+                        onChange={() => {
+                          if (allSelected) {
+                            setSelectedTenantIds(new Set());
+                          } else {
+                            setSelectedTenantIds(new Set(available.map(t => t.id)));
+                          }
+                        }}
+                        className="w-4 h-4 accent-purple-500" />
+                      <span className="text-sm">סמן הכל</span>
+                    </label>
+                    {(tenants||[]).map(t => {
+                      const alreadyApplied = (t.charges||[]).some(c => c.expenseId === selectExpModal.expId);
+                      return (
+                        <label key={t.id} className={`flex items-center gap-3 py-2.5 ${alreadyApplied ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50'}`}>
+                          <input type="checkbox"
+                            checked={selectedTenantIds.has(t.id) || alreadyApplied}
+                            disabled={alreadyApplied}
+                            onChange={() => {
+                              if (alreadyApplied) return;
+                              setSelectedTenantIds(prev => {
+                                const next = new Set(prev);
+                                if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
+                                return next;
+                              });
+                            }}
+                            className="w-4 h-4 accent-purple-500" />
+                          <span className="text-sm font-medium text-gray-700">דירה {t.apartment}</span>
+                          <span className="text-sm text-gray-500">{t.name}</span>
+                          {alreadyApplied && <span className="text-xs text-gray-400 mr-auto">שולף</span>}
+                        </label>
+                      );
+                    })}
+                  </>
                 );
-              })}
+              })()}
             </div>
             <div className="flex gap-2 justify-between items-center border-t pt-4">
               <button onClick={() => setSelectExpModal(null)} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">ביטול</button>
-              <div className="flex gap-2">
-                <button onClick={() => {
-                  setSelectedTenantIds(new Set((tenants||[]).filter(t => !(t.charges||[]).some(c => c.expenseId===selectExpModal.expId)).map(t => t.id)));
-                }} className="text-xs text-teal-600 border border-teal-200 hover:bg-teal-50 px-3 py-1.5 rounded-full font-medium transition">
-                  בחר הכל
-                </button>
-                <button onClick={() => {
-                  if (selectedTenantIds.size === 0) return;
-                  setTenants(prev => prev.map((t, i) =>
-                    selectedTenantIds.has(t.id) && !(t.charges||[]).some(c => c.expenseId===selectExpModal.expId)
-                      ? { ...t, charges: [...(t.charges||[]), { id: Date.now()+i, description: selectExpModal.description, amount: selectExpModal.perTenantAmount, status: 'חוב', note: '', expenseId: selectExpModal.expId }] }
-                      : t
-                  ));
-                  setSelectExpModal(null);
-                  setSelectedTenantIds(new Set());
-                }} className="bg-purple-500 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-purple-600 transition">
-                  שלוף לנבחרות
-                </button>
-              </div>
+              <button onClick={() => {
+                if (selectedTenantIds.size === 0) return;
+                setTenants(prev => prev.map((t, i) =>
+                  selectedTenantIds.has(t.id) && !(t.charges||[]).some(c => c.expenseId===selectExpModal.expId)
+                    ? { ...t, charges: [...(t.charges||[]), { id: Date.now()+i, description: selectExpModal.description, amount: selectExpModal.perTenantAmount, status: 'חוב', note: '', expenseId: selectExpModal.expId }] }
+                    : t
+                ));
+                setSelectExpModal(null);
+                setSelectedTenantIds(new Set());
+              }} className="bg-purple-500 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-purple-600 transition">
+                שלוף
+              </button>
             </div>
           </div>
         </div>
