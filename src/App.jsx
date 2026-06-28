@@ -234,6 +234,7 @@ function HebrewDatePicker({ day, month, year, onChange }) {
   const [navYear, setNavYear] = useState(year || todayHeb.year);
   const [mode, setMode] = useState('day');
   const [gregNavYear, setGregNavYear] = useState(_CURR_GREG_YEAR);
+  const [displayFormat, setDisplayFormat] = useState('heb');
   const ref = useRef(null);
 
   useEffect(() => {
@@ -274,7 +275,24 @@ function HebrewDatePicker({ day, month, year, onChange }) {
     const e = GREG_MONTHS_HE[gregLastDay.getMonth()];
     return s === e ? s : `${s}-${e}`;
   })() : '';
-  const label = day && month && year ? `${day} ${month} ${year}` : 'בחר תאריך';
+  const selectedGregDate = (() => {
+    if (!day || !month || !year) return null;
+    const sNumYear = HEBREW_YEAR_TO_NUMERIC[year];
+    if (!sNumYear) return null;
+    const sIsLeap = ((7 * sNumYear) + 1) % 19 < 7;
+    const sAllMonths = sIsLeap
+      ? ['תשרי','חשוון','כסלו','טבת','שבט','אדר א׳','אדר ב׳','ניסן','אייר','סיוון','תמוז','אב','אלול']
+      : ['תשרי','חשוון','כסלו','טבת','שבט','אדר','ניסן','אייר','סיוון','תמוז','אב','אלול'];
+    const sMonthNum = sAllMonths.indexOf(month === 'אדר' && sIsLeap ? 'אדר ב׳' : month) + 1;
+    const sDayNum = HEB_DAYS.indexOf(day) + 1;
+    return sMonthNum > 0 && sDayNum > 0 ? hebrewToGregorian(sNumYear, sMonthNum, sDayNum) : null;
+  })();
+  const hebLabel = day && month && year ? `${day} ${month} ${year}` : '';
+  const gregLabel = selectedGregDate ? `${selectedGregDate.getDate()}/${selectedGregDate.getMonth()+1}/${selectedGregDate.getFullYear()}` : '';
+  const label = !hebLabel ? 'בחר תאריך'
+    : displayFormat === 'greg' ? (gregLabel || hebLabel)
+    : displayFormat === 'both' ? `${hebLabel}  ${gregLabel}`
+    : hebLabel;
   const DAY_HEADERS = ['א','ב','ג','ד','ה','ו','ש'];
 
   return (
@@ -392,12 +410,22 @@ function HebrewDatePicker({ day, month, year, onChange }) {
             </>
           )}
 
-          {(day || month || year) && (
-            <button type="button" onClick={() => { onChange('', '', ''); setOpen(false); }}
-              className="mt-2 w-full text-xs text-gray-400 hover:text-red-400 transition">
-              נקה תאריך
-            </button>
-          )}
+          <div className="mt-2 pt-2 border-t flex items-center justify-between gap-1">
+            <div className="flex gap-1">
+              {[['heb','עברי'],['greg','לועזי'],['both','שניהם']].map(([f, label]) => (
+                <button key={f} type="button" onClick={() => setDisplayFormat(f)}
+                  className={`text-[11px] px-2 py-0.5 rounded-full transition ${displayFormat === f ? 'bg-teal-600 text-white' : 'text-gray-400 hover:bg-gray-100'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {(day || month || year) && (
+              <button type="button" onClick={() => { onChange('', '', ''); setOpen(false); }}
+                className="text-xs text-gray-400 hover:text-red-400 transition">
+                נקה
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
