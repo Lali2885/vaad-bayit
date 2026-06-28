@@ -1061,7 +1061,7 @@ export default function App() {
                     <Plus size={14} /> הוסף הוצאה
                   </button>
                 </div>
-                <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+                <div className="bg-white rounded-2xl border shadow-sm overflow-visible">
                   {(!settings[key] || settings[key].length === 0)
                     ? <p className="text-center text-gray-400 text-sm py-14">אין הוצאות {label}. לחצי על "הוסף הוצאה" כדי להתחיל.</p>
                     : <table className="w-full text-sm text-right">
