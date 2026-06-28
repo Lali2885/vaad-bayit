@@ -449,6 +449,8 @@ export default function App() {
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [selectExpModal, setSelectExpModal] = useState(null);
   const [selectedTenantIds, setSelectedTenantIds] = useState(new Set());
+  const [showStatementModal, setShowStatementModal] = useState(null);
+  const [statementYears, setStatementYears] = useState(new Set());
   const [filterYear, setFilterYear] = useState(CURRENT_HEBREW_YEAR);
   const [showTenantMsg, setShowTenantMsg] = useState(false);
   const [tenantMsgText, setTenantMsgText] = useState('');
@@ -633,10 +635,10 @@ export default function App() {
     return true;
   }
 
-  function printTenantStatement(tenant) {
+  function printTenantStatement(tenant, years) {
     const { month: curMonth, year: curYear } = getCurrentHebrewDate();
 
-    const sortedPayments = [...tenant.payments].sort((a, b) => {
+    const sortedPayments = [...tenant.payments].filter(p => years.has(p.hebrewYear)).sort((a, b) => {
       const ay = HEBREW_YEAR_TO_NUMERIC[a.hebrewYear] || 0;
       const by = HEBREW_YEAR_TO_NUMERIC[b.hebrewYear] || 0;
       if (ay !== by) return ay - by;
@@ -1476,7 +1478,12 @@ export default function App() {
                   <h4 className="font-bold text-base text-teal-800 mb-3">פעולות</h4>
                   <button className="w-full bg-teal-700 hover:bg-teal-600 text-white py-2.5 rounded-xl text-sm font-bold transition">תשלום גבייה</button>
                   <button className="w-full bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded-xl text-sm font-bold transition">הסדר תשלום</button>
-                  <button onClick={() => printTenantStatement(selectedTenant)} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
+                  <button onClick={() => {
+                    const available = [...new Set(selectedTenant.payments.map(p => p.hebrewYear))]
+                      .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
+                    setStatementYears(new Set(available));
+                    setShowStatementModal(selectedTenant);
+                  }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
                     <FileText size={14} /> הורד מסמך
                   </button>
                   <button onClick={() => { setTenantMsgText(''); setShowTenantMsg(true); }} className="w-full bg-sky-600 hover:bg-sky-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
@@ -1976,6 +1983,55 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {showStatementModal && (() => {
+        const tenant = showStatementModal;
+        const availableYears = [...new Set(tenant.payments.map(p => p.hebrewYear))]
+          .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowStatementModal(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl p-6 w-80" dir="rtl" onClick={e => e.stopPropagation()}>
+              <h3 className="text-lg font-bold text-gray-800 mb-1">הפקת מסמך</h3>
+              <p className="text-sm text-gray-500 mb-4">משפחת {tenant.name} — בחרי שנים לכלול במסמך</p>
+              <div className="space-y-1 mb-3 max-h-64 overflow-y-auto">
+                {availableYears.map(year => {
+                  const hasDebt = tenant.payments.some(p => p.hebrewYear === year && p.status === 'חוב' && (p.amount - (p.paidAmount || 0)) > 0);
+                  return (
+                    <label key={year} className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 py-2 px-2 rounded-lg">
+                      <input type="checkbox"
+                        checked={statementYears.has(year)}
+                        onChange={() => setStatementYears(prev => {
+                          const next = new Set(prev);
+                          if (next.has(year)) next.delete(year); else next.add(year);
+                          return next;
+                        })}
+                        className="w-4 h-4 accent-indigo-600" />
+                      <span className="text-sm font-medium text-gray-700">{year}</span>
+                      {hasDebt && <span className="text-xs text-red-400 mr-auto font-medium">יש חוב</span>}
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-3 text-xs mb-4 px-1">
+                <button onClick={() => setStatementYears(new Set(availableYears))} className="text-indigo-600 hover:text-indigo-800">בחר הכל</button>
+                <span className="text-gray-300">|</span>
+                <button onClick={() => setStatementYears(new Set())} className="text-gray-400 hover:text-gray-600">נקה</button>
+              </div>
+              <div className="flex gap-2 border-t pt-4">
+                <button onClick={() => setShowStatementModal(null)} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">ביטול</button>
+                <button onClick={() => {
+                  if (statementYears.size === 0) return;
+                  printTenantStatement(tenant, statementYears);
+                  setShowStatementModal(null);
+                }} disabled={statementYears.size === 0}
+                  className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-indigo-700 transition disabled:opacity-40 flex items-center justify-center gap-1">
+                  <FileText size={14} /> הפק מסמך
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {showEmailModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
