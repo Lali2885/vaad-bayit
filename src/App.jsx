@@ -141,6 +141,72 @@ function calcCredit(tenant) {
 
 const EMPTY_TENANT = { name: '', apt: '', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 0, owner: '', payments: [], charges: [], notes: '' };
 
+const HEB_DAYS = ['א','ב','ג','ד','ה','ו','ז','ח','ט','י','יא','יב','יג','יד','טו','טז','יז','יח','יט','כ','כא','כב','כג','כד','כה','כו','כז','כח','כט','ל'];
+const MONTH_DAYS = {'תשרי':30,'חשוון':29,'כסלו':30,'טבת':29,'שבט':30,'אדר':29,'אדר א׳':30,'אדר ב׳':29,'ניסן':30,'אייר':29,'סיוון':30,'תמוז':29,'אב':30,'אלול':29};
+
+function HebrewDatePicker({ day, month, year, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [navMonth, setNavMonth] = useState(month || TWELVE_MONTHS[0]);
+  const [navYear, setNavYear] = useState(year || HEBREW_YEARS[1]);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    if (open) document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  function prevMonth() {
+    const idx = TWELVE_MONTHS.indexOf(navMonth);
+    if (idx === 0) { setNavMonth(TWELVE_MONTHS[11]); setNavYear(HEBREW_YEARS[Math.max(0, HEBREW_YEARS.indexOf(navYear) - 1)]); }
+    else setNavMonth(TWELVE_MONTHS[idx - 1]);
+  }
+  function nextMonth() {
+    const idx = TWELVE_MONTHS.indexOf(navMonth);
+    if (idx === 11) { setNavMonth(TWELVE_MONTHS[0]); setNavYear(HEBREW_YEARS[Math.min(HEBREW_YEARS.length - 1, HEBREW_YEARS.indexOf(navYear) + 1)]); }
+    else setNavMonth(TWELVE_MONTHS[idx + 1]);
+  }
+
+  const daysCount = MONTH_DAYS[navMonth] || 30;
+  const label = day && month && year ? `${day} ${month} ${year}` : 'בחר תאריך';
+
+  return (
+    <div className="relative" ref={ref}>
+      <button type="button"
+        onClick={() => { setNavMonth(month || TWELVE_MONTHS[0]); setNavYear(year || HEBREW_YEARS[1]); setOpen(o => !o); }}
+        className="text-xs border border-gray-200 rounded-lg px-2 py-1 hover:border-teal-400 focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white text-right whitespace-nowrap">
+        {label}
+      </button>
+      {open && (
+        <div className="absolute z-50 bg-white border border-gray-200 rounded-2xl shadow-xl p-3 mt-1" style={{minWidth:'210px', right:0}}>
+          <div className="flex items-center justify-between mb-2">
+            <button type="button" onClick={nextMonth} className="p-1 hover:bg-gray-100 rounded-full text-gray-500 text-lg leading-none">›</button>
+            <span className="text-sm font-bold text-gray-700">{navMonth} {navYear}</span>
+            <button type="button" onClick={prevMonth} className="p-1 hover:bg-gray-100 rounded-full text-gray-500 text-lg leading-none">‹</button>
+          </div>
+          <div className="grid grid-cols-7 gap-0.5">
+            {Array.from({length: daysCount}, (_, i) => i + 1).map(d => (
+              <button key={d} type="button"
+                onClick={() => { onChange(HEB_DAYS[d-1], navMonth, navYear); setOpen(false); }}
+                className={`w-7 h-7 text-[10px] rounded-full flex items-center justify-center hover:bg-teal-100 transition ${HEB_DAYS[d-1] === day && navMonth === month && navYear === year ? 'bg-teal-600 text-white' : 'text-gray-700'}`}>
+                {HEB_DAYS[d-1]}
+              </button>
+            ))}
+          </div>
+          {(day || month || year) && (
+            <button type="button" onClick={() => { onChange('', '', ''); setOpen(false); }}
+              className="mt-2 w-full text-xs text-gray-400 hover:text-red-400 transition">
+              נקה תאריך
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [tenants, setTenants] = useState(null);
   const [settings, setSettings] = useState(null);
@@ -1019,24 +1085,12 @@ export default function App() {
                                   className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full" />
                               </td>
                               <td className="px-4 py-3">
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  <input type="text" value={exp.hebrewDay || ''}
-                                    onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,hebrewDay:e.target.value} : x) }))}
-                                    placeholder="יום"
-                                    className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400 w-12 text-center" />
-                                  <select value={exp.hebrewMonth || ''}
-                                    onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,hebrewMonth:e.target.value} : x) }))}
-                                    className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400">
-                                    <option value="">חודש</option>
-                                    {TWELVE_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
-                                  </select>
-                                  <select value={exp.hebrewYear || ''}
-                                    onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,hebrewYear:e.target.value} : x) }))}
-                                    className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400">
-                                    <option value="">שנה</option>
-                                    {HEBREW_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
-                                  </select>
-                                </div>
+                                <HebrewDatePicker
+                                  day={exp.hebrewDay || ''}
+                                  month={exp.hebrewMonth || ''}
+                                  year={exp.hebrewYear || ''}
+                                  onChange={(d, m, y) => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x, hebrewDay:d, hebrewMonth:m, hebrewYear:y} : x) }))}
+                                />
                               </td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center gap-1">
@@ -1061,10 +1115,25 @@ export default function App() {
                                   className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full text-gray-500" />
                               </td>
                               <td className="px-4 py-3 text-left">
-                                <button onClick={() => setSettings(s => ({ ...s, [key]: s[key].filter(x => x.id !== exp.id) }))}
-                                  className="text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100">
-                                  <Trash2 size={14} />
-                                </button>
+                                <div className="flex items-center gap-2 justify-end">
+                                  {key === 'extraordinaryExpenses' && (
+                                    <button onClick={() => {
+                                      if (!confirm(`לשלוף "${exp.description || 'הוצאה חריגה'}" (${(exp.perTenantAmount||0).toLocaleString()}₪) לכל הדיירים?`)) return;
+                                      setTenants(prev => prev.map((t, i) =>
+                                        (t.charges || []).some(c => c.expenseId === exp.id) ? t : {
+                                          ...t,
+                                          charges: [...(t.charges || []), { id: Date.now() + i, description: exp.description, amount: exp.perTenantAmount, status: 'חוב', note: '', expenseId: exp.id }]
+                                        }
+                                      ));
+                                    }} className="text-xs text-teal-600 border border-teal-200 hover:bg-teal-50 px-2 py-1 rounded-full font-medium transition whitespace-nowrap opacity-0 group-hover:opacity-100">
+                                      שלוף לכולם
+                                    </button>
+                                  )}
+                                  <button onClick={() => setSettings(s => ({ ...s, [key]: s[key].filter(x => x.id !== exp.id) }))}
+                                    className="text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100">
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
