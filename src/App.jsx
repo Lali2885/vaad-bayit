@@ -1159,90 +1159,146 @@ export default function App() {
                   <h2 className="text-xl font-bold text-gray-800">{label}</h2>
                   <button onClick={() => {
                     const { month: curM, year: curY, day: curD } = getCurrentHebrewDate();
-                    const newExp = { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, hebrewDay: curD, hebrewMonth: curM, hebrewYear: curY, note: '' };
+                    const newExp = key === 'electricityExpenses'
+                      ? { id: Date.now(), fromDay: curD, fromMonth: curM, fromYear: curY, toDay: '', toMonth: '', toYear: '', totalAmount: 0, paymentMethod: '', paymentDay: '', paymentMonth: '', paymentYear: '', note: '' }
+                      : { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, hebrewDay: curD, hebrewMonth: curM, hebrewYear: curY, note: '' };
                     setSettings(s => ({ ...s, [key]: [...(s[key] || []), newExp] }));
                   }} className="flex items-center gap-2 bg-teal-700 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-teal-600 transition">
-                    <Plus size={14} /> הוסף הוצאה
+                    <Plus size={14} /> {key === 'electricityExpenses' ? 'הוסף חשבונית' : 'הוסף הוצאה'}
                   </button>
                 </div>
                 <div className="bg-white rounded-2xl border shadow-sm overflow-visible">
                   {(!settings[key] || settings[key].length === 0)
-                    ? <p className="text-center text-gray-400 text-sm py-14">אין הוצאות {label}. לחצי על "הוסף הוצאה" כדי להתחיל.</p>
-                    : <table className="w-full text-sm text-right">
-                        <thead>
-                          <tr className="border-b bg-gray-50 text-gray-500 text-xs">
-                            <th className="px-4 py-3 font-medium">תיאור</th>
-                            <th className="px-4 py-3 font-medium">חודש / שנה</th>
-                            <th className="px-4 py-3 font-medium">סכום כולל</th>
-                            <th className="px-4 py-3 font-medium">חלק לדייר</th>
-                            <th className="px-4 py-3 font-medium">הערה</th>
-                            <th className="px-4 py-3"></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {settings[key].map(exp => (
-                            <tr key={exp.id} className="border-b group hover:bg-gray-50/50 transition">
-                              <td className="px-4 py-3">
-                                <input value={exp.description}
-                                  onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,description:e.target.value} : x) }))}
-                                  placeholder="תיאור ההוצאה"
-                                  className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full" />
-                              </td>
-                              <td className="px-4 py-3">
-                                <HebrewDatePicker
-                                  day={exp.hebrewDay || ''}
-                                  month={exp.hebrewMonth || ''}
-                                  year={exp.hebrewYear || ''}
-                                  onChange={(d, m, y) => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x, hebrewDay:d, hebrewMonth:m, hebrewYear:y} : x) }))}
-                                />
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-1">
-                                  <input type="number" value={exp.totalAmount} onFocus={e => e.target.select()}
-                                    onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,totalAmount:Number(e.target.value)} : x) }))}
-                                    className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
-                                  <span className="text-xs text-gray-400">₪</span>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-1">
-                                  <input type="number" value={exp.perTenantAmount} onFocus={e => e.target.select()}
-                                    onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,perTenantAmount:Number(e.target.value)} : x) }))}
-                                    className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
-                                  <span className="text-xs text-gray-400">₪</span>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3">
-                                <input value={exp.note}
-                                  onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,note:e.target.value} : x) }))}
-                                  placeholder="הערה"
-                                  className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full text-gray-500" />
-                              </td>
-                              <td className="px-4 py-3 text-left">
-                                <div className="flex items-center gap-2 justify-end">
-                                  {key === 'extraordinaryExpenses' && (
-                                    <button onClick={() => {
-                                      if (!confirm(`לשלוף "${exp.description || 'הוצאה חריגה'}" (${(exp.perTenantAmount||0).toLocaleString()}₪) לכל הדיירים?`)) return;
-                                      setTenants(prev => prev.map((t, i) =>
-                                        (t.charges || []).some(c => c.expenseId === exp.id) ? t : {
-                                          ...t,
-                                          charges: [...(t.charges || []), { id: Date.now() + i, description: exp.description, amount: exp.perTenantAmount, status: 'חוב', note: '', expenseId: exp.id }]
-                                        }
-                                      ));
-                                    }} className="text-xs text-teal-600 border border-teal-200 hover:bg-teal-50 px-2 py-1 rounded-full font-medium transition whitespace-nowrap opacity-0 group-hover:opacity-100">
-                                      שלוף לכולם
-                                    </button>
-                                  )}
+                    ? <p className="text-center text-gray-400 text-sm py-14">{key === 'electricityExpenses' ? 'אין חשבוניות חשמל.' : `אין הוצאות ${label}.`} לחצי על הכפתור כדי להתחיל.</p>
+                    : key === 'electricityExpenses'
+                      ? <table className="w-full text-sm text-right">
+                          <thead>
+                            <tr className="border-b bg-gray-50 text-gray-500 text-xs">
+                              <th className="px-3 py-3 font-medium">תקופה מ-</th>
+                              <th className="px-3 py-3 font-medium">עד</th>
+                              <th className="px-3 py-3 font-medium">סה״כ כולל מע״מ</th>
+                              <th className="px-3 py-3 font-medium">אופן תשלום</th>
+                              <th className="px-3 py-3 font-medium">תאריך תשלום</th>
+                              <th className="px-3 py-3 font-medium">הערות</th>
+                              <th className="px-3 py-3"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {settings[key].map(exp => (
+                              <tr key={exp.id} className="border-b group hover:bg-gray-50/50 transition">
+                                <td className="px-3 py-3">
+                                  <HebrewDatePicker day={exp.fromDay||''} month={exp.fromMonth||''} year={exp.fromYear||''}
+                                    onChange={(d,m,y) => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,fromDay:d,fromMonth:m,fromYear:y} : x) }))} />
+                                </td>
+                                <td className="px-3 py-3">
+                                  <HebrewDatePicker day={exp.toDay||''} month={exp.toMonth||''} year={exp.toYear||''}
+                                    onChange={(d,m,y) => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,toDay:d,toMonth:m,toYear:y} : x) }))} />
+                                </td>
+                                <td className="px-3 py-3">
+                                  <div className="flex items-center gap-1">
+                                    <input type="number" value={exp.totalAmount||0} onFocus={e => e.target.select()}
+                                      onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,totalAmount:Number(e.target.value)} : x) }))}
+                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
+                                    <span className="text-xs text-gray-400">₪</span>
+                                  </div>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <select value={exp.paymentMethod||''}
+                                    onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,paymentMethod:e.target.value} : x) }))}
+                                    className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400">
+                                    <option value="">בחר</option>
+                                    <option value="הוראת קבע">הוראת קבע</option>
+                                    <option value="העברה בנקאית">העברה בנקאית</option>
+                                    <option value="כרטיס אשראי">כרטיס אשראי</option>
+                                    <option value="מזומן">מזומן</option>
+                                  </select>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <HebrewDatePicker day={exp.paymentDay||''} month={exp.paymentMonth||''} year={exp.paymentYear||''}
+                                    onChange={(d,m,y) => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,paymentDay:d,paymentMonth:m,paymentYear:y} : x) }))} />
+                                </td>
+                                <td className="px-3 py-3">
+                                  <input value={exp.note||''} onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,note:e.target.value} : x) }))}
+                                    placeholder="הערות" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full text-gray-500" />
+                                </td>
+                                <td className="px-3 py-3 text-left">
                                   <button onClick={() => setSettings(s => ({ ...s, [key]: s[key].filter(x => x.id !== exp.id) }))}
                                     className="text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100">
                                     <Trash2 size={14} />
                                   </button>
-                                </div>
-                              </td>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      : <table className="w-full text-sm text-right">
+                          <thead>
+                            <tr className="border-b bg-gray-50 text-gray-500 text-xs">
+                              <th className="px-4 py-3 font-medium">תיאור</th>
+                              <th className="px-4 py-3 font-medium">תאריך</th>
+                              <th className="px-4 py-3 font-medium">סכום כולל</th>
+                              <th className="px-4 py-3 font-medium">חלק לדייר</th>
+                              <th className="px-4 py-3 font-medium">הערה</th>
+                              <th className="px-4 py-3"></th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {settings[key].map(exp => (
+                              <tr key={exp.id} className="border-b group hover:bg-gray-50/50 transition">
+                                <td className="px-4 py-3">
+                                  <input value={exp.description||''}
+                                    onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,description:e.target.value} : x) }))}
+                                    placeholder="תיאור ההוצאה"
+                                    className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full" />
+                                </td>
+                                <td className="px-4 py-3">
+                                  <HebrewDatePicker day={exp.hebrewDay||''} month={exp.hebrewMonth||''} year={exp.hebrewYear||''}
+                                    onChange={(d,m,y) => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,hebrewDay:d,hebrewMonth:m,hebrewYear:y} : x) }))} />
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-1">
+                                    <input type="number" value={exp.totalAmount||0} onFocus={e => e.target.select()}
+                                      onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,totalAmount:Number(e.target.value)} : x) }))}
+                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
+                                    <span className="text-xs text-gray-400">₪</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-1">
+                                    <input type="number" value={exp.perTenantAmount||0} onFocus={e => e.target.select()}
+                                      onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,perTenantAmount:Number(e.target.value)} : x) }))}
+                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
+                                    <span className="text-xs text-gray-400">₪</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <input value={exp.note||''} onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,note:e.target.value} : x) }))}
+                                    placeholder="הערה" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full text-gray-500" />
+                                </td>
+                                <td className="px-4 py-3 text-left">
+                                  <div className="flex items-center gap-2 justify-end">
+                                    {key === 'extraordinaryExpenses' && (
+                                      <button onClick={() => {
+                                        if (!confirm(`לשלוף "${exp.description||'הוצאה חריגה'}" (${(exp.perTenantAmount||0).toLocaleString()}₪) לכל הדיירים?`)) return;
+                                        setTenants(prev => prev.map((t,i) =>
+                                          (t.charges||[]).some(c => c.expenseId===exp.id) ? t : {
+                                            ...t, charges: [...(t.charges||[]), { id: Date.now()+i, description: exp.description, amount: exp.perTenantAmount, status: 'חוב', note: '', expenseId: exp.id }]
+                                          }
+                                        ));
+                                      }} className="text-xs text-teal-600 border border-teal-200 hover:bg-teal-50 px-2 py-1 rounded-full font-medium transition whitespace-nowrap opacity-0 group-hover:opacity-100">
+                                        שלוף לכולם
+                                      </button>
+                                    )}
+                                    <button onClick={() => setSettings(s => ({ ...s, [key]: s[key].filter(x => x.id !== exp.id) }))}
+                                      className="text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100">
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                   }
                 </div>
               </div>
