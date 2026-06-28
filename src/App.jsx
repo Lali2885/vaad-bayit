@@ -68,6 +68,31 @@ const HEBREW_YEAR_TO_NUMERIC = (() => {
   );
 })();
 
+function _hebElapsed(year) {
+  const m = Math.floor((235 * year - 234) / 19);
+  const parts = 12084 + 13753 * m;
+  let d = m * 29 + Math.floor(parts / 25920);
+  if ((3 * (d + 1)) % 7 < 3) d++;
+  return d;
+}
+function _hebYearDays(year) { return _hebElapsed(year + 1) - _hebElapsed(year); }
+function _hebDaysInMonth(year, month) {
+  const leap = ((7 * year) + 1) % 19 < 7;
+  const yd = _hebYearDays(year);
+  if (month === 1) return 30;
+  if (month === 2) return yd % 10 === 5 ? 30 : 29;
+  if (month === 3) return yd % 10 === 3 ? 29 : 30;
+  if (month === 4) return 29;
+  if (month === 5) return 30;
+  if (month === 6) return leap ? 30 : 29;
+  if (month === 7) return leap ? 29 : 30;
+  if (month === 8) return leap ? 30 : 29;
+  if (month === 9) return leap ? 29 : 30;
+  if (month === 10) return leap ? 30 : 29;
+  if (month === 11) return leap ? 29 : 30;
+  if (month === 12) return leap ? 30 : 29;
+  return 29;
+}
 function getHebrewMonthFirstDayOfWeek(monthName, yearStr) {
   const numericYear = HEBREW_YEAR_TO_NUMERIC[yearStr];
   if (!numericYear) return 0;
@@ -78,16 +103,9 @@ function getHebrewMonthFirstDayOfWeek(monthName, yearStr) {
   const targetName = (monthName === 'אדר' && isLeap) ? 'אדר ב׳' : monthName;
   const targetMonthNum = allMonths.indexOf(targetName) + 1;
   if (targetMonthNum === 0) return 0;
-  const approxStartMs = new Date(numericYear - 3761, 8, 1).getTime() + (targetMonthNum - 1) * 29.5 * 86400000 - 10 * 86400000;
-  const fmt = new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric', month: 'numeric' });
-  for (let i = 0; i < 90; i++) {
-    const d = new Date(approxStartMs + i * 86400000);
-    const parts = fmt.formatToParts(d);
-    const hDay = parseInt(parts.find(p => p.type === 'day')?.value || '0');
-    const hMonth = parseInt(parts.find(p => p.type === 'month')?.value || '0');
-    if (hDay === 1 && hMonth === targetMonthNum) return d.getDay();
-  }
-  return 0;
+  let daysOffset = 0;
+  for (let m = 1; m < targetMonthNum; m++) daysOffset += _hebDaysInMonth(numericYear, m);
+  return (_hebElapsed(numericYear) + daysOffset + 1) % 7;
 }
 
 
@@ -177,6 +195,7 @@ function HebrewDatePicker({ day, month, year, onChange }) {
   const [open, setOpen] = useState(false);
   const [navMonth, setNavMonth] = useState(month || TWELVE_MONTHS[0]);
   const [navYear, setNavYear] = useState(year || HEBREW_YEARS[1]);
+  const [mode, setMode] = useState('day');
   const ref = useRef(null);
 
   useEffect(() => {
@@ -198,7 +217,13 @@ function HebrewDatePicker({ day, month, year, onChange }) {
     else setNavMonth(TWELVE_MONTHS[idx + 1]);
   }
 
-  const daysCount = MONTH_DAYS[navMonth] || 30;
+  const numericYear = HEBREW_YEAR_TO_NUMERIC[navYear];
+  const isLeap = numericYear ? ((7 * numericYear) + 1) % 19 < 7 : false;
+  const allMonthsForYear = isLeap
+    ? ['תשרי','חשוון','כסלו','טבת','שבט','אדר א׳','אדר ב׳','ניסן','אייר','סיוון','תמוז','אב','אלול']
+    : ['תשרי','חשוון','כסלו','טבת','שבט','אדר','ניסן','אייר','סיוון','תמוז','אב','אלול'];
+  const navMonthNum = allMonthsForYear.indexOf(navMonth === 'אדר' && isLeap ? 'אדר ב׳' : navMonth) + 1;
+  const daysCount = numericYear && navMonthNum > 0 ? _hebDaysInMonth(numericYear, navMonthNum) : (MONTH_DAYS[navMonth] || 30);
   const firstDayOfWeek = getHebrewMonthFirstDayOfWeek(navMonth, navYear);
   const label = day && month && year ? `${day} ${month} ${year}` : 'בחר תאריך';
   const DAY_HEADERS = ['א','ב','ג','ד','ה','ו','ש'];
@@ -206,32 +231,71 @@ function HebrewDatePicker({ day, month, year, onChange }) {
   return (
     <div className="relative" ref={ref}>
       <button type="button"
-        onClick={() => { setNavMonth(month || TWELVE_MONTHS[0]); setNavYear(year || HEBREW_YEARS[1]); setOpen(o => !o); }}
+        onClick={() => { setNavMonth(month || TWELVE_MONTHS[0]); setNavYear(year || HEBREW_YEARS[1]); setMode('day'); setOpen(o => !o); }}
         className="text-xs border border-gray-200 rounded-lg px-2 py-1 hover:border-teal-400 focus:outline-none focus:ring-1 focus:ring-teal-400 bg-white text-right whitespace-nowrap">
         {label}
       </button>
       {open && (
         <div className="absolute z-50 bg-white border border-gray-200 rounded-2xl shadow-xl p-3 mt-1" style={{minWidth:'224px', right:0}}>
-          <div className="flex items-center justify-between mb-2">
-            <button type="button" onClick={nextMonth} className="p-1 hover:bg-gray-100 rounded-full text-gray-500 text-lg leading-none">›</button>
-            <span className="text-sm font-bold text-gray-700">{navMonth} {navYear}</span>
-            <button type="button" onClick={prevMonth} className="p-1 hover:bg-gray-100 rounded-full text-gray-500 text-lg leading-none">‹</button>
-          </div>
-          <div className="grid grid-cols-7 gap-0.5 mb-1">
-            {DAY_HEADERS.map(h => (
-              <div key={h} className="w-7 h-6 flex items-center justify-center text-[10px] font-bold text-gray-400">{h}</div>
-            ))}
-          </div>
-          <div className="grid grid-cols-7 gap-0.5">
-            {Array.from({length: firstDayOfWeek}).map((_, i) => <div key={`e${i}`} className="w-7 h-7" />)}
-            {Array.from({length: daysCount}, (_, i) => i + 1).map(d => (
-              <button key={d} type="button"
-                onClick={() => { onChange(HEB_DAYS[d-1], navMonth, navYear); setOpen(false); }}
-                className={`w-7 h-7 text-[10px] rounded-full flex items-center justify-center hover:bg-teal-100 transition ${HEB_DAYS[d-1] === day && navMonth === month && navYear === year ? 'bg-teal-600 text-white' : 'text-gray-700'}`}>
-                {HEB_DAYS[d-1]}
+          <div className="flex items-center justify-between mb-3">
+            {mode === 'day' && <button type="button" onClick={nextMonth} className="p-1 hover:bg-gray-100 rounded-full text-gray-500 text-lg leading-none">›</button>}
+            <div className={`flex items-center gap-1 ${mode === 'day' ? '' : 'flex-1 justify-center'}`}>
+              <button type="button" onClick={() => setMode(m => m === 'month' ? 'day' : 'month')}
+                className={`text-sm font-bold px-2 py-0.5 rounded-lg transition ${mode === 'month' ? 'bg-teal-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>
+                {navMonth}
               </button>
-            ))}
+              <button type="button" onClick={() => setMode(m => m === 'year' ? 'day' : 'year')}
+                className={`text-sm font-bold px-2 py-0.5 rounded-lg transition ${mode === 'year' ? 'bg-teal-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>
+                {navYear}
+              </button>
+            </div>
+            {mode === 'day' && <button type="button" onClick={prevMonth} className="p-1 hover:bg-gray-100 rounded-full text-gray-500 text-lg leading-none">‹</button>}
           </div>
+
+          {mode === 'month' && (
+            <div className="grid grid-cols-3 gap-1">
+              {TWELVE_MONTHS.map(m => (
+                <button key={m} type="button"
+                  onClick={() => { setNavMonth(m); setMode('day'); }}
+                  className={`py-1.5 text-xs rounded-lg transition ${m === navMonth ? 'bg-teal-600 text-white' : 'text-gray-700 hover:bg-teal-50'}`}>
+                  {m}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {mode === 'year' && (
+            <div className="grid grid-cols-2 gap-2 py-1">
+              {HEBREW_YEARS.map(y => (
+                <button key={y} type="button"
+                  onClick={() => { setNavYear(y); setMode('day'); }}
+                  className={`py-2 text-sm rounded-lg transition ${y === navYear ? 'bg-teal-600 text-white' : 'text-gray-700 hover:bg-teal-50'}`}>
+                  {y}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {mode === 'day' && (
+            <>
+              <div className="grid grid-cols-7 gap-0.5 mb-1">
+                {DAY_HEADERS.map(h => (
+                  <div key={h} className="w-7 h-6 flex items-center justify-center text-[10px] font-bold text-gray-400">{h}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-0.5">
+                {Array.from({length: firstDayOfWeek}).map((_, i) => <div key={`e${i}`} className="w-7 h-7" />)}
+                {Array.from({length: daysCount}, (_, i) => i + 1).map(d => (
+                  <button key={d} type="button"
+                    onClick={() => { onChange(HEB_DAYS[d-1], navMonth, navYear); setOpen(false); }}
+                    className={`w-7 h-7 text-[10px] rounded-full flex items-center justify-center hover:bg-teal-100 transition ${HEB_DAYS[d-1] === day && navMonth === month && navYear === year ? 'bg-teal-600 text-white' : 'text-gray-700'}`}>
+                    {HEB_DAYS[d-1]}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
           {(day || month || year) && (
             <button type="button" onClick={() => { onChange('', '', ''); setOpen(false); }}
               className="mt-2 w-full text-xs text-gray-400 hover:text-red-400 transition">
