@@ -452,6 +452,7 @@ export default function App() {
   const [tenantMsgText, setTenantMsgText] = useState('');
   const logoInputRef = useRef(null);
   const dataLoadedForUser = useRef(null);
+  const orphanCleanedRef = useRef(false);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
@@ -584,6 +585,16 @@ export default function App() {
     }, 800);
     return () => clearTimeout(t);
   }, [settings, session]);
+
+  useEffect(() => {
+    if (!tenants || !settings || orphanCleanedRef.current) return;
+    orphanCleanedRef.current = true;
+    const validIds = new Set((settings.extraordinaryExpenses || []).map(e => e.id));
+    const hasOrphans = tenants.some(t => (t.charges||[]).some(c => c.expenseId && !validIds.has(c.expenseId)));
+    if (hasOrphans) {
+      setTenants(prev => prev.map(t => ({ ...t, charges: (t.charges||[]).filter(c => !c.expenseId || validIds.has(c.expenseId)) })));
+    }
+  }, [tenants, settings]);
 
   async function handleLogin(e) {
     e.preventDefault();
