@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Home, ReceiptText, Building, ChevronRight, Mail, Bell, Plus, Pencil, Trash2, X, Check, Settings, Upload, ImageOff, MessageSquare, Banknote, LogOut, LayoutDashboard, Wallet, TrendingDown, Calendar } from 'lucide-react';
+import { Home, ReceiptText, Building, ChevronRight, Mail, Bell, Plus, Pencil, Trash2, X, Check, Settings, Upload, ImageOff, MessageSquare, Banknote, LogOut, LayoutDashboard, Wallet, TrendingDown, Calendar, FileText } from 'lucide-react';
 import emailjs from '@emailjs/browser';
 import { supabase, testConnection } from './supabase';
 
@@ -631,6 +631,114 @@ export default function App() {
       reply_to: es.senderEmail || '',
     }, es.publicKey);
     return true;
+  }
+
+  function printTenantStatement(tenant) {
+    const { month: curMonth, year: curYear } = getCurrentHebrewDate();
+
+    const sortedPayments = [...tenant.payments].sort((a, b) => {
+      const ay = HEBREW_YEAR_TO_NUMERIC[a.hebrewYear] || 0;
+      const by = HEBREW_YEAR_TO_NUMERIC[b.hebrewYear] || 0;
+      if (ay !== by) return ay - by;
+      return TWELVE_MONTHS.indexOf(a.hebrewMonth) - TWELVE_MONTHS.indexOf(b.hebrewMonth);
+    });
+
+    const paidPayments = sortedPayments.filter(p => p.status === 'שולם');
+    const debtPayments = sortedPayments.filter(p => {
+      const rem = p.amount - (p.paidAmount || 0);
+      return p.status === 'חוב' && rem > 0;
+    });
+    const allCharges = (tenant.charges || []).filter(c => c.expenseId);
+    const debtCharges = allCharges.filter(c => c.status === 'חוב');
+
+    const totalPaid = paidPayments.reduce((s, p) => s + (p.paidAmount || p.amount), 0);
+    const totalDebtAmt = debtPayments.reduce((s, p) => s + p.amount - (p.paidAmount || 0), 0)
+      + debtCharges.reduce((s, c) => s + c.amount, 0);
+
+    const html = `<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8">
+  <title>פירוט תשלומים — ${tenant.name}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; padding: 48px 56px; color: #111; background: #fff; direction: rtl; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 36px; border-bottom: 2px solid #0d9488; padding-bottom: 20px; }
+    .header-title h1 { font-size: 22px; font-weight: bold; color: #0f766e; margin-bottom: 6px; }
+    .header-title p { font-size: 14px; color: #555; }
+    .header-info { text-align: left; font-size: 12px; color: #777; line-height: 1.8; }
+    .section-title { font-size: 15px; font-weight: bold; color: #0f766e; margin: 28px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #ccfbf1; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background: #f0fdfa; color: #0f766e; padding: 9px 14px; text-align: right; font-weight: bold; border-bottom: 2px solid #0d9488; }
+    td { padding: 8px 14px; border-bottom: 1px solid #e5e7eb; }
+    tr:nth-child(even) td { background: #fafafa; }
+    .paid { color: #16a34a; font-weight: 600; }
+    .debt { color: #dc2626; font-weight: 600; }
+    .empty { color: #999; font-size: 13px; padding: 10px 0; }
+    .summary { background: #f0fdfa; border: 1px solid #0d9488; border-radius: 10px; padding: 18px 20px; margin-top: 28px; }
+    .summary-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 14px; color: #444; }
+    .summary-total { font-size: 17px; font-weight: bold; border-top: 1px solid #0d9488; margin-top: 10px; padding-top: 10px; color: ${totalDebtAmt > 0 ? '#dc2626' : '#16a34a'}; }
+    .footer { margin-top: 40px; font-size: 11px; color: #aaa; text-align: center; }
+    @media print { body { padding: 20px 30px; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-title">
+      <h1>משפחת ${tenant.name} היקרה,</h1>
+      <p>להלן פירוט התשלומים שלכם נכון לחודש ${curMonth} ${curYear}</p>
+    </div>
+    <div class="header-info">
+      <div>${settings.buildingName || ''}</div>
+      <div>${settings.address || ''}</div>
+      <div>דירה ${tenant.apt}</div>
+    </div>
+  </div>
+
+  <div class="section-title">תשלומים ששולמו</div>
+  ${paidPayments.length > 0
+    ? `<table>
+        <thead><tr><th>שנה</th><th>חודש</th><th>סכום ששולם</th></tr></thead>
+        <tbody>
+          ${paidPayments.map(p => `<tr>
+            <td>${p.hebrewYear}</td>
+            <td>${p.hebrewMonth}</td>
+            <td class="paid">₪${(p.paidAmount || p.amount).toLocaleString()}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`
+    : `<p class="empty">אין תשלומים רשומים</p>`}
+
+  <div class="section-title">חובות פתוחים</div>
+  ${debtPayments.length > 0 || debtCharges.length > 0
+    ? `<table>
+        <thead><tr><th>תיאור</th><th>סכום לתשלום</th></tr></thead>
+        <tbody>
+          ${debtPayments.map(p => `<tr>
+            <td>ועד בית — ${p.hebrewMonth} ${p.hebrewYear}</td>
+            <td class="debt">₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}</td>
+          </tr>`).join('')}
+          ${debtCharges.map(c => `<tr>
+            <td>${c.description || 'הוצאה חריגה'}</td>
+            <td class="debt">₪${c.amount.toLocaleString()}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`
+    : `<p class="empty" style="color:#16a34a">✓ אין חובות פתוחים</p>`}
+
+  <div class="summary">
+    <div class="summary-row"><span>סה"כ שולם</span><span class="paid">₪${totalPaid.toLocaleString()}</span></div>
+    <div class="summary-row summary-total"><span>יתרת חוב לתשלום</span><span>₪${totalDebtAmt.toLocaleString()}</span></div>
+  </div>
+
+  <div class="footer">מסמך זה הופק ב-${curMonth} ${curYear} | ${settings.buildingName || ''}</div>
+</body>
+</html>`;
+
+    const w = window.open('', '_blank');
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => w.print(), 400);
   }
 
   function openSettings() {
@@ -1368,6 +1476,9 @@ export default function App() {
                   <h4 className="font-bold text-base text-teal-800 mb-3">פעולות</h4>
                   <button className="w-full bg-teal-700 hover:bg-teal-600 text-white py-2.5 rounded-xl text-sm font-bold transition">תשלום גבייה</button>
                   <button className="w-full bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded-xl text-sm font-bold transition">הסדר תשלום</button>
+                  <button onClick={() => printTenantStatement(selectedTenant)} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
+                    <FileText size={14} /> הורד מסמך
+                  </button>
                   <button onClick={() => { setTenantMsgText(''); setShowTenantMsg(true); }} className="w-full bg-sky-600 hover:bg-sky-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
                     <MessageSquare size={14} /> שלח הודעה
                   </button>
