@@ -95,6 +95,17 @@ function _hebDaysInMonth(year, month) {
   if (month === 12) return leap ? 30 : 29;
   return 29;
 }
+const _REF_ELAPSED = _hebElapsed(5786);
+const _REF_GREG = new Date(2025, 8, 23);
+const GREG_MONTHS_HE = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+
+function hebrewToGregorian(numericYear, monthNum, day) {
+  let offset = 0;
+  for (let m = 1; m < monthNum; m++) offset += _hebDaysInMonth(numericYear, m);
+  const diff = _hebElapsed(numericYear) + offset + (day - 1) - _REF_ELAPSED;
+  return new Date(_REF_GREG.getTime() + diff * 86400000);
+}
+
 function getHebrewMonthFirstDayOfWeek(monthName, yearStr) {
   const numericYear = HEBREW_YEAR_TO_NUMERIC[yearStr];
   if (!numericYear) return 0;
@@ -228,6 +239,14 @@ function HebrewDatePicker({ day, month, year, onChange }) {
   const navMonthNum = allMonthsForYear.indexOf(navMonth === 'אדר' && isLeap ? 'אדר ב׳' : navMonth) + 1;
   const daysCount = numericYear && navMonthNum > 0 ? _hebDaysInMonth(numericYear, navMonthNum) : (MONTH_DAYS[navMonth] || 30);
   const firstDayOfWeek = getHebrewMonthFirstDayOfWeek(navMonth, navYear);
+  const gregFirstDay = numericYear && navMonthNum > 0 ? hebrewToGregorian(numericYear, navMonthNum, 1) : null;
+  const gregLastDay = gregFirstDay ? new Date(gregFirstDay.getTime() + (daysCount - 1) * 86400000) : null;
+  const gregHeader = gregFirstDay ? (() => {
+    const s = GREG_MONTHS_HE[gregFirstDay.getMonth()];
+    const e = GREG_MONTHS_HE[gregLastDay.getMonth()];
+    const y1 = gregFirstDay.getFullYear(), y2 = gregLastDay.getFullYear();
+    return s === e ? `${s} ${y1}` : y1 === y2 ? `${s} - ${e} ${y1}` : `${s} ${y1} - ${e} ${y2}`;
+  })() : '';
   const label = day && month && year ? `${day} ${month} ${year}` : 'בחר תאריך';
   const DAY_HEADERS = ['א','ב','ג','ד','ה','ו','ש'];
 
@@ -239,7 +258,7 @@ function HebrewDatePicker({ day, month, year, onChange }) {
         {label}
       </button>
       {open && (
-        <div className="absolute z-50 bg-white border border-gray-200 rounded-2xl shadow-xl p-3 mt-1" style={{minWidth:'224px', right:0}}>
+        <div className="absolute z-50 bg-white border border-gray-200 rounded-2xl shadow-xl p-3 mt-1" style={{minWidth:'260px', right:0}}>
           <div className="flex items-center justify-between mb-3">
             {mode === 'day' && <button type="button" onClick={nextMonth} className="p-1 hover:bg-gray-100 rounded-full text-gray-500 text-lg leading-none">›</button>}
             <div className={`flex items-center gap-1 ${mode === 'day' ? '' : 'flex-1 justify-center'}`}>
@@ -281,20 +300,26 @@ function HebrewDatePicker({ day, month, year, onChange }) {
 
           {mode === 'day' && (
             <>
+              {gregHeader && <div className="text-center text-[11px] text-gray-400 mb-2">{gregHeader}</div>}
               <div className="grid grid-cols-7 gap-0.5 mb-1">
                 {DAY_HEADERS.map(h => (
-                  <div key={h} className="w-7 h-6 flex items-center justify-center text-[10px] font-bold text-gray-400">{h}</div>
+                  <div key={h} className="w-9 h-6 flex items-center justify-center text-[10px] font-bold text-gray-400">{h}</div>
                 ))}
               </div>
               <div className="grid grid-cols-7 gap-0.5">
-                {Array.from({length: firstDayOfWeek}).map((_, i) => <div key={`e${i}`} className="w-7 h-7" />)}
-                {Array.from({length: daysCount}, (_, i) => i + 1).map(d => (
-                  <button key={d} type="button"
-                    onClick={() => { onChange(HEB_DAYS[d-1], navMonth, navYear); setOpen(false); }}
-                    className={`w-7 h-7 text-[10px] rounded-full flex items-center justify-center hover:bg-teal-100 transition ${HEB_DAYS[d-1] === day && navMonth === month && navYear === year ? 'bg-teal-600 text-white' : 'text-gray-700'}`}>
-                    {HEB_DAYS[d-1]}
-                  </button>
-                ))}
+                {Array.from({length: firstDayOfWeek}).map((_, i) => <div key={`e${i}`} className="w-9 h-10" />)}
+                {Array.from({length: daysCount}, (_, i) => i + 1).map(d => {
+                  const isSelected = HEB_DAYS[d-1] === day && navMonth === month && navYear === year;
+                  const gregDay = gregFirstDay ? new Date(gregFirstDay.getTime() + (d-1) * 86400000).getDate() : null;
+                  return (
+                    <button key={d} type="button"
+                      onClick={() => { onChange(HEB_DAYS[d-1], navMonth, navYear); setOpen(false); }}
+                      className={`w-9 h-10 text-[10px] rounded-lg flex flex-col items-center justify-center hover:bg-teal-100 transition ${isSelected ? 'bg-teal-600 text-white' : 'text-gray-700'}`}>
+                      <span className="font-medium leading-none">{HEB_DAYS[d-1]}</span>
+                      {gregDay && <span className={`text-[9px] leading-none mt-0.5 ${isSelected ? 'text-teal-100' : 'text-gray-400'}`}>{gregDay}</span>}
+                    </button>
+                  );
+                })}
               </div>
             </>
           )}
