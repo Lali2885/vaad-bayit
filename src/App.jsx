@@ -646,7 +646,7 @@ export default function App() {
   }
 
   function applyFeeToAllTenants(amount, fromMonth, fromYear) {
-    if (!confirm(`לעדכן את כל הדיירים לתעריף ${amount}₪ החל מ-${fromMonth}?`)) return;
+    if (!confirm(`לעדכן את כל הדיירים לתעריף ₪${amount} החל מ-${fromMonth}?`)) return;
     const yearRank = y => HEBREW_YEARS.indexOf(y);
     const monthRank = m => TWELVE_MONTHS.indexOf(m);
     setTenants(prev => prev.map(t => {
@@ -904,11 +904,11 @@ export default function App() {
                     <span className="text-sm font-medium text-gray-500">כסף בקופה</span>
                   </div>
                   <p className={`text-3xl font-bold mb-3 ${balance >= 0 ? 'text-teal-700' : 'text-red-500'}`}>
-                    {balance.toLocaleString()}₪
+                    ₪{balance.toLocaleString()}
                   </p>
                   <div className="text-xs text-gray-400 space-y-1">
-                    <div className="flex justify-between"><span>הכנסות</span><span className="text-green-600 font-semibold">{totalIncome.toLocaleString()}₪</span></div>
-                    <div className="flex justify-between"><span>הוצאות</span><span className="text-red-400 font-semibold">{totalExpensesAll.toLocaleString()}₪</span></div>
+                    <div className="flex justify-between"><span>הכנסות</span><span className="text-green-600 font-semibold">₪{totalIncome.toLocaleString()}</span></div>
+                    <div className="flex justify-between"><span>הוצאות</span><span className="text-red-400 font-semibold">₪{totalExpensesAll.toLocaleString()}</span></div>
                   </div>
                 </div>
 
@@ -919,10 +919,10 @@ export default function App() {
                     </div>
                     <span className="text-sm font-medium text-gray-500">הוצאות החודש</span>
                   </div>
-                  <p className="text-3xl font-bold text-orange-600 mb-3">{thisMonthTotal.toLocaleString()}₪</p>
+                  <p className="text-3xl font-bold text-orange-600 mb-3">₪{thisMonthTotal.toLocaleString()}</p>
                   <div className="text-xs text-gray-400 space-y-1">
-                    {thisMonthElec > 0 && <div className="flex justify-between"><span>חשמל</span><span className="font-semibold">{thisMonthElec.toLocaleString()}₪</span></div>}
-                    {thisMonthOther > 0 && <div className="flex justify-between"><span>אחר</span><span className="font-semibold">{thisMonthOther.toLocaleString()}₪</span></div>}
+                    {thisMonthElec > 0 && <div className="flex justify-between"><span>חשמל</span><span className="font-semibold">₪{thisMonthElec.toLocaleString()}</span></div>}
+                    {thisMonthOther > 0 && <div className="flex justify-between"><span>אחר</span><span className="font-semibold">₪{thisMonthOther.toLocaleString()}</span></div>}
                     {thisMonthTotal === 0 && <span className="text-gray-300">אין הוצאות רשומות החודש</span>}
                   </div>
                 </div>
@@ -938,7 +938,7 @@ export default function App() {
                   <div className="text-xs text-gray-400 space-y-1">
                     <div className="flex justify-between"><span>לא שילמו החודש</span><span className="font-semibold text-red-400">{unpaidThisMonth}</span></div>
                     <div className="flex justify-between"><span>בחוב כולל</span><span className="font-semibold text-red-400">{debtorsCount}</span></div>
-                    <div className="flex justify-between"><span>סה״כ חוב</span><span className="font-semibold text-red-400">{totalDebt.toLocaleString()}₪</span></div>
+                    <div className="flex justify-between"><span>סה״כ חוב</span><span className="font-semibold text-red-400">₪{totalDebt.toLocaleString()}</span></div>
                   </div>
                 </div>
 
@@ -949,9 +949,9 @@ export default function App() {
                     </div>
                     <span className="text-sm font-medium text-gray-500">הוצאות צפויות</span>
                   </div>
-                  <p className="text-3xl font-bold text-purple-600 mb-3">{pendingCharges.toLocaleString()}₪</p>
+                  <p className="text-3xl font-bold text-purple-600 mb-3">₪{pendingCharges.toLocaleString()}</p>
                   <div className="text-xs text-gray-400 space-y-1">
-                    <div className="flex justify-between"><span>חיובים חריגים פתוחים</span><span className="font-semibold">{pendingCharges.toLocaleString()}₪</span></div>
+                    <div className="flex justify-between"><span>חיובים חריגים פתוחים</span><span className="font-semibold">₪{pendingCharges.toLocaleString()}</span></div>
                     {unappliedCount > 0 && <div className="flex justify-between"><span>הוצאות שלא שולפו</span><span className="font-semibold text-amber-500">{unappliedCount}</span></div>}
                     {pendingCharges === 0 && unappliedCount === 0 && <span className="text-gray-300">אין חיובים פתוחים</span>}
                   </div>
@@ -967,7 +967,7 @@ export default function App() {
             <header className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-xl font-bold text-gray-800">ניהול דיירים</h2>
-                <p className="text-sm text-gray-500">סה"כ חוב בבניין: <span className="font-bold text-red-600">{totalDebt.toLocaleString()}₪</span></p>
+                <p className="text-sm text-gray-500">סה"כ חוב בבניין: <span className="font-bold text-red-600">₪{totalDebt.toLocaleString()}</span></p>
               </div>
               <div className="flex gap-2 flex-wrap justify-end">
                 <button onClick={() => alert('תזכורות תשלום נשלחו!')} className="bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-1 transition">
@@ -1001,12 +1001,12 @@ export default function App() {
                     <div className="flex flex-col items-center gap-0.5 mt-2">
                       {debt > 0 && (
                         <div className="flex items-center justify-center gap-1 text-xs font-semibold text-red-500">
-                          <Banknote size={13} /> {debt.toLocaleString()}₪ חוב
+                          <Banknote size={13} /> ₪{debt.toLocaleString()} חוב
                         </div>
                       )}
                       {credit > 0 && (
                         <div className="flex items-center justify-center gap-1 text-xs font-semibold text-green-600">
-                          <Check size={12} /> {credit.toLocaleString()}₪ זכות
+                          <Check size={12} /> ₪{credit.toLocaleString()} זכות
                         </div>
                       )}
                       {debt === 0 && credit === 0 && (
@@ -1127,7 +1127,7 @@ export default function App() {
                           <tr key={month} className={`border-b ${p.status === 'זכות' ? 'bg-teal-50/30' : p.status === 'שולם' ? '' : 'bg-red-50/20'}`}>
                             <td className="py-2 font-medium">{month}</td>
                             <td className="py-2">
-                              <span className="text-sm font-medium text-gray-700">{p.amount.toLocaleString()}₪</span>
+                              <span className="text-sm font-medium text-gray-700">₪{p.amount.toLocaleString()}</span>
                             </td>
                             <td className="py-2">
                               {p.status === 'זכות'
@@ -1139,7 +1139,7 @@ export default function App() {
                                     <span className="text-xs text-teal-500">₪ זכות</span>
                                   </div>
                                 : p.status === 'שולם'
-                                ? <span className="text-green-600 font-semibold text-xs">{p.amount.toLocaleString()}₪ ✓</span>
+                                ? <span className="text-green-600 font-semibold text-xs">₪{p.amount.toLocaleString()} ✓</span>
                                 : <div className="flex items-center gap-1">
                                     <input type="number" value={p.paidAmount || 0} min={0} max={p.amount}
                                       onChange={e => updatePaymentPaid(p.id, e.target.value)}
@@ -1151,10 +1151,10 @@ export default function App() {
                             </td>
                             <td className="py-2">
                               {p.status === 'שולם' || (p.status === 'זכות' && remaining <= 0)
-                                ? <span className="text-green-600 text-xs">0₪</span>
+                                ? <span className="text-green-600 text-xs">₪0</span>
                                 : p.status === 'זכות'
-                                ? <span className="font-semibold text-xs text-orange-400">{remaining.toLocaleString()}₪</span>
-                                : <span className={`font-semibold text-xs ${remaining > 0 ? 'text-red-500' : 'text-green-600'}`}>{remaining.toLocaleString()}₪</span>
+                                ? <span className="font-semibold text-xs text-orange-400">₪{remaining.toLocaleString()}</span>
+                                : <span className={`font-semibold text-xs ${remaining > 0 ? 'text-red-500' : 'text-green-600'}`}>₪{remaining.toLocaleString()}</span>
                               }
                             </td>
                             <td className="py-2 text-left">
@@ -1251,7 +1251,7 @@ export default function App() {
                           {(selectedTenant.charges || []).filter(c => c.expenseId).map(c => (
                             <tr key={c.id} className="border-b group">
                               <td className="py-2 text-sm text-gray-700">{c.description || 'הוצאה חריגה'}</td>
-                              <td className="py-2 font-medium text-gray-800">{(c.amount||0).toLocaleString()}₪</td>
+                              <td className="py-2 font-medium text-gray-800">₪{(c.amount||0).toLocaleString()}</td>
                               <td className="py-2">
                                 <button onClick={() => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,status:x.status==='שולם'?'חוב':'שולם'} : x) }))}
                                   className={`text-xs px-2 py-1 rounded-full border font-medium transition ${c.status==='שולם'?'text-green-600 border-green-200 hover:bg-green-50':'text-red-500 border-red-200 hover:bg-red-50'}`}>
@@ -1276,7 +1276,7 @@ export default function App() {
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-medium text-gray-700">{exp.description || 'הוצאה ללא שם'}</span>
                               {(exp.hebrewMonth || exp.hebrewYear) && <span className="text-xs text-gray-400">{exp.hebrewDay ? `${exp.hebrewDay} ` : ''}{exp.hebrewMonth} {exp.hebrewYear}</span>}
-                              <span className="text-xs font-semibold text-teal-600">{(exp.perTenantAmount||0).toLocaleString()}₪ לדייר</span>
+                              <span className="text-xs font-semibold text-teal-600">₪{(exp.perTenantAmount||0).toLocaleString()} לדייר</span>
                             </div>
                             <button onClick={() => {
                               const newCharge = { id: Date.now(), description: exp.description, amount: exp.perTenantAmount, status: 'חוב', note: '', expenseId: exp.id };
@@ -1309,7 +1309,7 @@ export default function App() {
               <div className="space-y-5">
                 <div className="bg-white p-5 rounded-2xl border shadow-sm text-center">
                   <p className="text-gray-500 text-sm font-medium">סך יתרת חוב</p>
-                  <p className={`text-4xl font-bold my-2 ${calcDebt(selectedTenant)>0?'text-red-600':'text-green-600'}`}>{calcDebt(selectedTenant).toLocaleString()}₪</p>
+                  <p className={`text-4xl font-bold my-2 ${calcDebt(selectedTenant)>0?'text-red-600':'text-green-600'}`}>₪{calcDebt(selectedTenant).toLocaleString()}</p>
                   <div className="w-14 h-14 bg-teal-50 rounded-full flex items-center justify-center text-xl font-bold text-teal-800 mx-auto">{selectedTenant.apt}</div>
                 </div>
 
@@ -1324,7 +1324,7 @@ export default function App() {
                       <div className="space-y-2.5 text-sm">
                         <div className="flex justify-between items-center">
                           <span className="text-gray-500">תעריף בסיס</span>
-                          <span className="font-medium text-gray-700">{baseFee.toLocaleString()}₪</span>
+                          <span className="font-medium text-gray-700">₪{baseFee.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="text-gray-500">אחוז תשלום</span>
@@ -1357,7 +1357,7 @@ export default function App() {
                         </div>
                         <div className="flex justify-between items-center border-t pt-2.5">
                           <span className="text-gray-500 font-medium">לתשלום בפועל</span>
-                          <span className="font-bold text-teal-700 text-base">{effective.toLocaleString()}₪</span>
+                          <span className="font-bold text-teal-700 text-base">₪{effective.toLocaleString()}</span>
                         </div>
                       </div>
                     </div>
@@ -1539,7 +1539,7 @@ export default function App() {
                                     {key === 'extraordinaryExpenses' && (
                                       <>
                                         <button onClick={() => {
-                                          if (!confirm(`לשלוף "${exp.description||'הוצאה חריגה'}" (${(exp.perTenantAmount||0).toLocaleString()}₪) לכל הדיירים?`)) return;
+                                          if (!confirm(`לשלוף "${exp.description||'הוצאה חריגה'}" (₪${(exp.perTenantAmount||0).toLocaleString()}) לכל הדיירים?`)) return;
                                           setTenants(prev => prev.map((t,i) =>
                                             (t.charges||[]).some(c => c.expenseId===exp.id) ? t : {
                                               ...t, charges: [...(t.charges||[]), { id: Date.now()+i, description: exp.description, amount: exp.perTenantAmount, status: 'חוב', note: '', expenseId: exp.id }]
@@ -1916,7 +1916,7 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setSelectExpModal(null)}>
           <div className="bg-white rounded-2xl shadow-2xl p-6 w-96 max-h-[80vh] flex flex-col" dir="rtl" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-gray-800 mb-1">שלוף לדירות נבחרות</h3>
-            <p className="text-sm text-gray-500 mb-4">{selectExpModal.description || 'הוצאה חריגה'} — {(selectExpModal.perTenantAmount||0).toLocaleString()}₪ לדייר</p>
+            <p className="text-sm text-gray-500 mb-4">{selectExpModal.description || 'הוצאה חריגה'} — ₪{(selectExpModal.perTenantAmount||0).toLocaleString()} לדייר</p>
             <div className="overflow-y-auto flex-1 divide-y divide-gray-100 mb-4">
               {(() => {
                 const available = (tenants||[]).filter(t => !(t.charges||[]).some(c => c.expenseId === selectExpModal.expId));
