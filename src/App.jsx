@@ -886,7 +886,11 @@ export default function App() {
             <>
               <header className="mb-6">
                 <h2 className="text-xl font-bold text-gray-800">דשבורד</h2>
-                <p className="text-sm text-gray-500">{curMonth} {curYear}</p>
+                <p className="text-sm text-gray-500">
+                  {curMonth} {curYear}
+                  <span className="mx-2 text-gray-300">|</span>
+                  {GREG_MONTHS_HE[new Date().getMonth()]} {new Date().getFullYear()}
+                </p>
               </header>
               <div className="grid grid-cols-2 gap-5 max-w-2xl">
 
