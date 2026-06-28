@@ -78,15 +78,14 @@ function getHebrewMonthFirstDayOfWeek(monthName, yearStr) {
   const targetName = (monthName === 'אדר' && isLeap) ? 'אדר ב׳' : monthName;
   const targetMonthNum = allMonths.indexOf(targetName) + 1;
   if (targetMonthNum === 0) return 0;
-  const approxStartMs = new Date(numericYear - 3761, 8, 1).getTime() + (targetMonthNum - 1) * 29.5 * 86400000 - 5 * 86400000;
-  const fmt = new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric', month: 'numeric', year: 'numeric' });
-  for (let i = 0; i < 60; i++) {
+  const approxStartMs = new Date(numericYear - 3761, 8, 1).getTime() + (targetMonthNum - 1) * 29.5 * 86400000 - 10 * 86400000;
+  const fmt = new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric', month: 'numeric' });
+  for (let i = 0; i < 90; i++) {
     const d = new Date(approxStartMs + i * 86400000);
     const parts = fmt.formatToParts(d);
     const hDay = parseInt(parts.find(p => p.type === 'day')?.value || '0');
     const hMonth = parseInt(parts.find(p => p.type === 'month')?.value || '0');
-    const hYear = parseInt(parts.find(p => p.type === 'year')?.value || '0');
-    if (hDay === 1 && hMonth === targetMonthNum && hYear === numericYear) return d.getDay();
+    if (hDay === 1 && hMonth === targetMonthNum) return d.getDay();
   }
   return 0;
 }
