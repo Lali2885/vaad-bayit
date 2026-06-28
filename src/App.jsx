@@ -61,6 +61,36 @@ const HEBREW_YEARS = (() => {
   return [numericYear - 1, numericYear, numericYear + 1, numericYear + 2].map(numericToHebrewYear);
 })();
 
+const HEBREW_YEAR_TO_NUMERIC = (() => {
+  const { numericYear } = getCurrentHebrewDate();
+  return Object.fromEntries(
+    [numericYear - 1, numericYear, numericYear + 1, numericYear + 2].map(n => [numericToHebrewYear(n), n])
+  );
+})();
+
+function getHebrewMonthFirstDayOfWeek(monthName, yearStr) {
+  const numericYear = HEBREW_YEAR_TO_NUMERIC[yearStr];
+  if (!numericYear) return 0;
+  const isLeap = ((7 * numericYear) + 1) % 19 < 7;
+  const allMonths = isLeap
+    ? ['תשרי','חשוון','כסלו','טבת','שבט','אדר א׳','אדר ב׳','ניסן','אייר','סיוון','תמוז','אב','אלול']
+    : ['תשרי','חשוון','כסלו','טבת','שבט','אדר','ניסן','אייר','סיוון','תמוז','אב','אלול'];
+  const targetName = (monthName === 'אדר' && isLeap) ? 'אדר ב׳' : monthName;
+  const targetMonthNum = allMonths.indexOf(targetName) + 1;
+  if (targetMonthNum === 0) return 0;
+  const approxStartMs = new Date(numericYear - 3761, 8, 1).getTime() + (targetMonthNum - 1) * 29.5 * 86400000 - 5 * 86400000;
+  const fmt = new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric', month: 'numeric', year: 'numeric' });
+  for (let i = 0; i < 60; i++) {
+    const d = new Date(approxStartMs + i * 86400000);
+    const parts = fmt.formatToParts(d);
+    const hDay = parseInt(parts.find(p => p.type === 'day')?.value || '0');
+    const hMonth = parseInt(parts.find(p => p.type === 'month')?.value || '0');
+    const hYear = parseInt(parts.find(p => p.type === 'year')?.value || '0');
+    if (hDay === 1 && hMonth === targetMonthNum && hYear === numericYear) return d.getDay();
+  }
+  return 0;
+}
+
 
 const TENANTS_VERSION = 'v5-apt1-paid';
 
@@ -170,7 +200,9 @@ function HebrewDatePicker({ day, month, year, onChange }) {
   }
 
   const daysCount = MONTH_DAYS[navMonth] || 30;
+  const firstDayOfWeek = getHebrewMonthFirstDayOfWeek(navMonth, navYear);
   const label = day && month && year ? `${day} ${month} ${year}` : 'בחר תאריך';
+  const DAY_HEADERS = ['א','ב','ג','ד','ה','ו','ש'];
 
   return (
     <div className="relative" ref={ref}>
@@ -180,13 +212,19 @@ function HebrewDatePicker({ day, month, year, onChange }) {
         {label}
       </button>
       {open && (
-        <div className="absolute z-50 bg-white border border-gray-200 rounded-2xl shadow-xl p-3 mt-1" style={{minWidth:'210px', right:0}}>
+        <div className="absolute z-50 bg-white border border-gray-200 rounded-2xl shadow-xl p-3 mt-1" style={{minWidth:'224px', right:0}}>
           <div className="flex items-center justify-between mb-2">
             <button type="button" onClick={nextMonth} className="p-1 hover:bg-gray-100 rounded-full text-gray-500 text-lg leading-none">›</button>
             <span className="text-sm font-bold text-gray-700">{navMonth} {navYear}</span>
             <button type="button" onClick={prevMonth} className="p-1 hover:bg-gray-100 rounded-full text-gray-500 text-lg leading-none">‹</button>
           </div>
+          <div className="grid grid-cols-7 gap-0.5 mb-1">
+            {DAY_HEADERS.map(h => (
+              <div key={h} className="w-7 h-6 flex items-center justify-center text-[10px] font-bold text-gray-400">{h}</div>
+            ))}
+          </div>
           <div className="grid grid-cols-7 gap-0.5">
+            {Array.from({length: firstDayOfWeek}).map((_, i) => <div key={`e${i}`} className="w-7 h-7" />)}
             {Array.from({length: daysCount}, (_, i) => i + 1).map(d => (
               <button key={d} type="button"
                 onClick={() => { onChange(HEB_DAYS[d-1], navMonth, navYear); setOpen(false); }}
