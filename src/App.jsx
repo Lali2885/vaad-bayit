@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Home, ReceiptText, Building, ChevronRight, Mail, Bell, Plus, Pencil, Trash2, X, Check, Settings, Upload, ImageOff, MessageSquare, Banknote, LogOut } from 'lucide-react';
+import { Home, ReceiptText, Building, ChevronRight, Mail, Bell, Plus, Pencil, Trash2, X, Check, Settings, Upload, ImageOff, MessageSquare, Banknote, LogOut, LayoutDashboard, Wallet, TrendingDown, Calendar } from 'lucide-react';
 import emailjs from '@emailjs/browser';
 import { supabase, testConnection } from './supabase';
 
@@ -818,6 +818,9 @@ export default function App() {
           ? <img src={settings.logo} alt="לוגו" className="w-14 h-14 object-contain rounded-full bg-white/20 p-1.5 shadow" />
           : <Building size={38} className="text-cyan-100" />}
         <div className="flex flex-col items-center gap-2 mt-2 w-full px-2">
+          <button onClick={() => setView('dashboard')} className={`flex flex-col items-center gap-1.5 w-full py-3 rounded-2xl transition-all ${view === 'dashboard' ? 'bg-white/20 text-white' : 'text-cyan-100 hover:text-white hover:bg-white/10'}`}>
+            <LayoutDashboard size={26} /><span className="text-[11px] font-medium">דשבורד</span>
+          </button>
           <button onClick={goList} className={`flex flex-col items-center gap-1.5 w-full py-3 rounded-2xl transition-all ${view === 'list' ? 'bg-white/20 text-white' : 'text-cyan-100 hover:text-white hover:bg-white/10'}`}>
             <Home size={26} /><span className="text-[11px] font-medium">דיירים</span>
           </button>
@@ -837,6 +840,122 @@ export default function App() {
       </div>
 
       <main className="flex-1 p-6 overflow-auto bg-sky-50">
+        {view === 'dashboard' && (() => {
+          const { month: curMonth, year: curYear } = getCurrentHebrewDate();
+
+          const totalIncome = tenants.reduce((sum, t) =>
+            sum + t.payments.reduce((s, p) =>
+              s + (p.status === 'שולם' ? (p.paidAmount || p.amount) : (p.paidAmount || 0)), 0
+            ), 0
+          );
+
+          const totalExpensesAll = [
+            ...(settings.electricityExpenses || []),
+            ...(settings.cleaningExpenses || []),
+            ...(settings.regularExpenses || []),
+            ...(settings.extraordinaryExpenses || []),
+          ].reduce((sum, e) => sum + (e.totalAmount || 0), 0);
+
+          const balance = totalIncome - totalExpensesAll;
+
+          const thisMonthElec = (settings.electricityExpenses || [])
+            .filter(e => e.paymentMonth === curMonth && e.paymentYear === curYear)
+            .reduce((sum, e) => sum + (e.totalAmount || 0), 0);
+          const thisMonthOther = [
+            ...(settings.cleaningExpenses || []),
+            ...(settings.regularExpenses || []),
+            ...(settings.extraordinaryExpenses || []),
+          ].filter(e => e.hebrewMonth === curMonth && e.hebrewYear === curYear)
+           .reduce((sum, e) => sum + (e.totalAmount || 0), 0);
+          const thisMonthTotal = thisMonthElec + thisMonthOther;
+
+          const unpaidThisMonth = tenants.filter(t => {
+            const p = t.payments.find(p => p.hebrewMonth === curMonth && p.hebrewYear === curYear);
+            return !p || p.status === 'חוב';
+          }).length;
+          const debtorsCount = tenants.filter(t => calcDebt(t) > 0).length;
+
+          const pendingCharges = tenants.reduce((sum, t) =>
+            sum + (t.charges || []).filter(c => c.status === 'חוב').reduce((s, c) => s + c.amount, 0), 0
+          );
+          const unappliedCount = (settings.extraordinaryExpenses || []).filter(
+            exp => !tenants.every(t => (t.charges||[]).some(c => c.expenseId === exp.id))
+          ).length;
+
+          return (
+            <>
+              <header className="mb-6">
+                <h2 className="text-xl font-bold text-gray-800">דשבורד</h2>
+                <p className="text-sm text-gray-500">{curMonth} {curYear}</p>
+              </header>
+              <div className="grid grid-cols-2 gap-5 max-w-2xl">
+
+                <div className={`bg-white rounded-2xl border shadow-sm p-5 ${balance >= 0 ? 'border-teal-100' : 'border-red-100'}`}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${balance >= 0 ? 'bg-teal-100' : 'bg-red-100'}`}>
+                      <Wallet size={18} className={balance >= 0 ? 'text-teal-600' : 'text-red-500'} />
+                    </div>
+                    <span className="text-sm font-medium text-gray-500">כסף בקופה</span>
+                  </div>
+                  <p className={`text-3xl font-bold mb-3 ${balance >= 0 ? 'text-teal-700' : 'text-red-500'}`}>
+                    {balance.toLocaleString()}₪
+                  </p>
+                  <div className="text-xs text-gray-400 space-y-1">
+                    <div className="flex justify-between"><span>הכנסות</span><span className="text-green-600 font-semibold">{totalIncome.toLocaleString()}₪</span></div>
+                    <div className="flex justify-between"><span>הוצאות</span><span className="text-red-400 font-semibold">{totalExpensesAll.toLocaleString()}₪</span></div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-orange-100 shadow-sm p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-orange-100">
+                      <TrendingDown size={18} className="text-orange-500" />
+                    </div>
+                    <span className="text-sm font-medium text-gray-500">הוצאות החודש</span>
+                  </div>
+                  <p className="text-3xl font-bold text-orange-600 mb-3">{thisMonthTotal.toLocaleString()}₪</p>
+                  <div className="text-xs text-gray-400 space-y-1">
+                    {thisMonthElec > 0 && <div className="flex justify-between"><span>חשמל</span><span className="font-semibold">{thisMonthElec.toLocaleString()}₪</span></div>}
+                    {thisMonthOther > 0 && <div className="flex justify-between"><span>אחר</span><span className="font-semibold">{thisMonthOther.toLocaleString()}₪</span></div>}
+                    {thisMonthTotal === 0 && <span className="text-gray-300">אין הוצאות רשומות החודש</span>}
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-sky-100 shadow-sm p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-sky-100">
+                      <Bell size={18} className="text-sky-500" />
+                    </div>
+                    <span className="text-sm font-medium text-gray-500">עדכונים</span>
+                  </div>
+                  <p className="text-3xl font-bold text-sky-600 mb-3">{unpaidThisMonth} דיירים</p>
+                  <div className="text-xs text-gray-400 space-y-1">
+                    <div className="flex justify-between"><span>לא שילמו החודש</span><span className="font-semibold text-red-400">{unpaidThisMonth}</span></div>
+                    <div className="flex justify-between"><span>בחוב כולל</span><span className="font-semibold text-red-400">{debtorsCount}</span></div>
+                    <div className="flex justify-between"><span>סה״כ חוב</span><span className="font-semibold text-red-400">{totalDebt.toLocaleString()}₪</span></div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-purple-100 shadow-sm p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-purple-100">
+                      <Calendar size={18} className="text-purple-500" />
+                    </div>
+                    <span className="text-sm font-medium text-gray-500">הוצאות צפויות</span>
+                  </div>
+                  <p className="text-3xl font-bold text-purple-600 mb-3">{pendingCharges.toLocaleString()}₪</p>
+                  <div className="text-xs text-gray-400 space-y-1">
+                    <div className="flex justify-between"><span>חיובים חריגים פתוחים</span><span className="font-semibold">{pendingCharges.toLocaleString()}₪</span></div>
+                    {unappliedCount > 0 && <div className="flex justify-between"><span>הוצאות שלא שולפו</span><span className="font-semibold text-amber-500">{unappliedCount}</span></div>}
+                    {pendingCharges === 0 && unappliedCount === 0 && <span className="text-gray-300">אין חיובים פתוחים</span>}
+                  </div>
+                </div>
+
+              </div>
+            </>
+          );
+        })()}
+
         {view === 'list' && (
           <>
             <header className="flex justify-between items-center mb-6">
