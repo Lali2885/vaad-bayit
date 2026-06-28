@@ -1420,8 +1420,12 @@ export default function App() {
                                         </button>
                                       </>
                                     )}
-                                    <button onClick={() => setSettings(s => ({ ...s, [key]: s[key].filter(x => x.id !== exp.id) }))}
-                                      className="text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100">
+                                    <button onClick={() => {
+                                      setSettings(s => ({ ...s, [key]: s[key].filter(x => x.id !== exp.id) }));
+                                      if (key === 'extraordinaryExpenses') {
+                                        setTenants(prev => prev.map(t => ({ ...t, charges: (t.charges||[]).filter(c => c.expenseId !== exp.id) })));
+                                      }
+                                    }} className="text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100">
                                       <Trash2 size={14} />
                                     </button>
                                   </div>
