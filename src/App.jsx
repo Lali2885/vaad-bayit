@@ -495,8 +495,7 @@ export default function App() {
       const cs = localStorage.getItem(cacheKeyS);
       if (ct && cs) { setTenants(JSON.parse(ct)); setSettings(JSON.parse(cs)); hasCache = true; }
     } catch (e) {}
-    if (hasCache) return;
-    setDataLoading(true);
+    if (!hasCache) setDataLoading(true);
 
     const { month, year } = getCurrentHebrewDate();
     const autoKey = `${month}-${year}`;
