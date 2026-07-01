@@ -456,7 +456,6 @@ export default function App() {
   const [tenantMsgText, setTenantMsgText] = useState('');
   const logoInputRef = useRef(null);
   const dataLoadedForUser = useRef(null);
-  const orphanCleanedRef = useRef(false);
   const skipTenantsSaveRef = useRef(false);
   const skipSettingsSaveRef = useRef(false);
   const [session, setSession] = useState(null);
@@ -600,8 +599,7 @@ export default function App() {
   }, [settings, session]);
 
   useEffect(() => {
-    if (!tenants || !settings || orphanCleanedRef.current) return;
-    orphanCleanedRef.current = true;
+    if (!tenants || !settings) return;
     const validIds = new Set((settings.extraordinaryExpenses || []).map(e => e.id));
     const hasOrphans = tenants.some(t => (t.charges||[]).some(c => c.expenseId && !validIds.has(c.expenseId)));
     if (hasOrphans) {
