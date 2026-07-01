@@ -759,18 +759,16 @@ export default function App() {
     setSettingsSaved(false);
   }
 
-  function saveSettings() {
+  async function saveSettings() {
     skipSettingsSaveRef.current = true;
     setSettings(settingsData);
+    if (session) {
+      const { error } = await supabase.from('app_settings').update({ data: settingsData }).eq('user_id', session.user.id);
+      if (error) { setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`); return; }
+      try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settingsData)); } catch (e) {}
+    }
     setSettingsSaved(true);
     setTimeout(() => setSettingsSaved(false), 2000);
-    if (session) {
-      supabase.from('app_settings').update({ data: settingsData }).eq('user_id', session.user.id)
-        .then(({ error }) => {
-          if (error) setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`);
-          else try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settingsData)); } catch (e) {}
-        });
-    }
   }
 
   function applyFeeToAllTenants(amount, fromMonth, fromYear) {
