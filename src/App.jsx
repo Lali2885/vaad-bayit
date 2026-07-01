@@ -579,7 +579,7 @@ export default function App() {
       const { error } = await supabase.from('app_tenants')
         .update({ data: tenants })
         .eq('user_id', session.user.id);
-      if (error) console.error('שגיאת שמירת דיירים:', error);
+      if (error) setDbError(`שגיאת שמירת דיירים: ${error.message} (${error.code})`);
       else try { localStorage.setItem(`vaad_tenants_${session.user.id}`, JSON.stringify(tenants)); } catch (e) {}
     }, 800);
     return () => clearTimeout(t);
@@ -592,7 +592,7 @@ export default function App() {
       const { error } = await supabase.from('app_settings')
         .update({ data: settings })
         .eq('user_id', session.user.id);
-      if (error) console.error('שגיאת שמירת הגדרות:', error);
+      if (error) setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`);
       else try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settings)); } catch (e) {}
     }, 800);
     return () => clearTimeout(t);
@@ -767,7 +767,7 @@ export default function App() {
     if (session) {
       supabase.from('app_settings').update({ data: settingsData }).eq('user_id', session.user.id)
         .then(({ error }) => {
-          if (error) console.error('שגיאת שמירת הגדרות:', error);
+          if (error) setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`);
           else try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settingsData)); } catch (e) {}
         });
     }
@@ -795,7 +795,19 @@ export default function App() {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => setSettingsData(d => ({ ...d, logo: ev.target.result }));
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 300;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        setSettingsData(d => ({ ...d, logo: canvas.toDataURL('image/png') }));
+      };
+      img.src = ev.target.result;
+    };
     reader.readAsDataURL(file);
   }
 
