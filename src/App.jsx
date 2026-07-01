@@ -447,6 +447,7 @@ export default function App() {
   const [newTenant, setNewTenant] = useState(EMPTY_TENANT);
   const [settingsData, setSettingsData] = useState(null);
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [selectExpModal, setSelectExpModal] = useState(null);
   const [selectedTenantIds, setSelectedTenantIds] = useState(new Set());
   const [showStatementModal, setShowStatementModal] = useState(null);
@@ -458,6 +459,7 @@ export default function App() {
   const dataLoadedForUser = useRef(null);
   const skipTenantsSaveRef = useRef(false);
   const skipSettingsSaveRef = useRef(false);
+  const pendingWritesRef = useRef(0);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
@@ -481,6 +483,14 @@ export default function App() {
       if (!session) { setTenants(null); setSettings(null); }
     });
     return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    function handleBeforeUnload(e) {
+      if (pendingWritesRef.current > 0) { e.preventDefault(); e.returnValue = ''; }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
   useEffect(() => {
@@ -576,11 +586,14 @@ export default function App() {
     if (!session || !tenants) return;
     if (skipTenantsSaveRef.current) { skipTenantsSaveRef.current = false; return; }
     const t = setTimeout(async () => {
-      const { error } = await supabase.from('app_tenants')
-        .update({ data: tenants })
-        .eq('user_id', session.user.id);
-      if (error) setDbError(`שגיאת שמירת דיירים: ${error.message} (${error.code})`);
-      else try { localStorage.setItem(`vaad_tenants_${session.user.id}`, JSON.stringify(tenants)); } catch (e) {}
+      pendingWritesRef.current++;
+      try {
+        const { error } = await supabase.from('app_tenants')
+          .update({ data: tenants })
+          .eq('user_id', session.user.id);
+        if (error) setDbError(`שגיאת שמירת דיירים: ${error.message} (${error.code})`);
+        else try { localStorage.setItem(`vaad_tenants_${session.user.id}`, JSON.stringify(tenants)); } catch (e) {}
+      } finally { pendingWritesRef.current--; }
     }, 800);
     return () => clearTimeout(t);
   }, [tenants, session]);
@@ -589,11 +602,14 @@ export default function App() {
     if (!session || !settings) return;
     if (skipSettingsSaveRef.current) { skipSettingsSaveRef.current = false; return; }
     const t = setTimeout(async () => {
-      const { error } = await supabase.from('app_settings')
-        .update({ data: settings })
-        .eq('user_id', session.user.id);
-      if (error) setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`);
-      else try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settings)); } catch (e) {}
+      pendingWritesRef.current++;
+      try {
+        const { error } = await supabase.from('app_settings')
+          .update({ data: settings })
+          .eq('user_id', session.user.id);
+        if (error) setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`);
+        else try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settings)); } catch (e) {}
+      } finally { pendingWritesRef.current--; }
     }, 800);
     return () => clearTimeout(t);
   }, [settings, session]);
@@ -763,9 +779,13 @@ export default function App() {
     skipSettingsSaveRef.current = true;
     setSettings(settingsData);
     if (session) {
-      const { error } = await supabase.from('app_settings').update({ data: settingsData }).eq('user_id', session.user.id);
-      if (error) { setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`); return; }
-      try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settingsData)); } catch (e) {}
+      pendingWritesRef.current++;
+      setIsSavingSettings(true);
+      try {
+        const { error } = await supabase.from('app_settings').update({ data: settingsData }).eq('user_id', session.user.id);
+        if (error) { setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`); return; }
+        try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settingsData)); } catch (e) {}
+      } finally { pendingWritesRef.current--; setIsSavingSettings(false); }
     }
     setSettingsSaved(true);
     setTimeout(() => setSettingsSaved(false), 2000);
@@ -1730,8 +1750,8 @@ export default function App() {
           <div className="max-w-3xl mx-auto">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-gray-800">הגדרות מערכת</h2>
-              <button onClick={saveSettings} className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-bold transition ${settingsSaved ? 'bg-green-600 text-white' : 'bg-teal-700 hover:bg-teal-600 text-white'}`}>
-                {settingsSaved ? <><Check size={15} /> נשמר!</> : <><Check size={15} /> שמור הגדרות</>}
+              <button onClick={saveSettings} disabled={isSavingSettings} className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-bold transition disabled:opacity-60 ${settingsSaved ? 'bg-green-600 text-white' : 'bg-teal-700 hover:bg-teal-600 text-white'}`}>
+                {isSavingSettings ? <>שומר...</> : settingsSaved ? <><Check size={15} /> נשמר!</> : <><Check size={15} /> שמור הגדרות</>}
               </button>
             </div>
 
