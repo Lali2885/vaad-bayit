@@ -1088,53 +1088,47 @@ export default function App() {
                 </button>
               </div>
             </header>
-            <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-5">
               {[
                 { label: 'קומה 1', apts: ['1','2','3'], rental: false },
                 { label: 'קומה 2', apts: ['4','5','6'], rental: false },
                 { label: 'קומה 3', apts: ['7','8','9'], rental: false },
                 { label: 'קומה 4', apts: ['10','11','12'], rental: false },
-                { label: 'קומה 5 — שכירות', apts: ['13','14','15','16','17'], rental: true },
+                { label: 'קומה 5 — שכירות', apts: ['13','14','15','16','17'], rental: true, full: true },
               ].map(floor => {
                 const floorTenants = tenants.filter(t => floor.apts.includes(t.apt));
                 return (
-                  <div key={floor.label}>
-                    <h3 className={`text-xs font-bold mb-3 pb-1.5 border-b ${floor.rental ? 'text-amber-600 border-amber-200' : 'text-teal-700 border-teal-100'}`}>{floor.label}</h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                  <div key={floor.label} className={floor.full ? 'col-span-2' : ''}>
+                    <h3 className={`text-xs font-bold mb-2 pb-1 border-b ${floor.rental ? 'text-amber-600 border-amber-200' : 'text-teal-700 border-teal-100'}`}>{floor.label}</h3>
+                    <div className="flex flex-wrap gap-2">
                       {floorTenants.map(t => {
                         const debt = calcDebt(t);
                         const credit = calcCredit(t);
                         const isRental = floor.rental;
                         return (
                           <div key={t.id} onClick={() => openTenant(t.id)}
-                            className={`p-5 rounded-2xl border text-center cursor-pointer hover:shadow-lg transition-all ${
+                            className={`p-2.5 rounded-xl border text-center cursor-pointer hover:shadow-md transition-all w-24 ${
                               isRental
                                 ? debt > 0 ? 'bg-orange-50 border-orange-200' : 'bg-amber-50 border-amber-200'
                                 : debt > 0 ? 'bg-red-50 border-red-100' : 'bg-teal-50/60 border-teal-100'
                             }`}>
-                            <div className="w-14 h-14 rounded-full flex items-center justify-center font-bold text-xl text-white mx-auto mb-3 shadow-sm"
+                            <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm text-white mx-auto mb-1.5 shadow-sm"
                               style={{background: isRental ? 'linear-gradient(135deg, #d97706, #f59e0b)' : 'linear-gradient(135deg, #0d9488, #0ea5e9)'}}>
                               {t.apt}
                             </div>
-                            <p className="font-bold text-sm text-gray-800">{t.name}</p>
+                            <p className="font-semibold text-[11px] text-gray-800 leading-tight truncate">{t.name}</p>
                             {t.feePercent && Number(t.feePercent) !== 100 && (
-                              <span className="text-[10px] text-amber-600 font-medium bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full mt-1">{t.feePercent}%</span>
+                              <span className="text-[9px] text-amber-600 font-medium bg-amber-50 border border-amber-200 px-1 py-0.5 rounded-full mt-0.5 inline-block">{t.feePercent}%</span>
                             )}
-                            <div className="flex flex-col items-center gap-0.5 mt-2">
+                            <div className="mt-1">
                               {debt > 0 && (
-                                <div className="flex items-center justify-center gap-1 text-xs font-semibold text-red-500">
-                                  <Banknote size={13} /> ₪{debt.toLocaleString()} חוב
-                                </div>
+                                <div className="text-[10px] font-semibold text-red-500">₪{debt.toLocaleString()} חוב</div>
                               )}
                               {credit > 0 && (
-                                <div className="flex items-center justify-center gap-1 text-xs font-semibold text-green-600">
-                                  <Check size={12} /> ₪{credit.toLocaleString()} זכות
-                                </div>
+                                <div className="text-[10px] font-semibold text-green-600">₪{credit.toLocaleString()} זכות</div>
                               )}
                               {debt === 0 && credit === 0 && (
-                                <div className="flex items-center justify-center gap-1 text-xs font-semibold text-teal-600">
-                                  <Check size={12} /> מעודכן
-                                </div>
+                                <div className="text-[10px] font-semibold text-teal-500">מעודכן ✓</div>
                               )}
                             </div>
                           </div>
@@ -1144,13 +1138,6 @@ export default function App() {
                   </div>
                 );
               })}
-              <div onClick={() => setView('add')} className="bg-white p-5 rounded-2xl border border-dashed border-teal-200 text-center cursor-pointer hover:shadow-md hover:border-teal-400 transition-all w-40">
-                <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-3"
-                  style={{background: 'linear-gradient(135deg, #0d948822, #0ea5e922)'}}>
-                  <Plus size={28} className="text-teal-600" />
-                </div>
-                <p className="font-bold text-sm text-teal-600">דייר חדש</p>
-              </div>
             </div>
           </>
         )}
