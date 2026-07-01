@@ -1107,28 +1107,28 @@ export default function App() {
                         const isRental = floor.rental;
                         return (
                           <div key={t.id} onClick={() => openTenant(t.id)}
-                            className={`p-2.5 rounded-xl border text-center cursor-pointer hover:shadow-md transition-all w-24 ${
+                            className={`p-4 rounded-2xl border text-center cursor-pointer hover:shadow-lg transition-all w-36 ${
                               isRental
                                 ? debt > 0 ? 'bg-orange-50 border-orange-200' : 'bg-amber-50 border-amber-200'
                                 : debt > 0 ? 'bg-red-50 border-red-100' : 'bg-teal-50/60 border-teal-100'
                             }`}>
-                            <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm text-white mx-auto mb-1.5 shadow-sm"
+                            <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg text-white mx-auto mb-2 shadow-sm"
                               style={{background: isRental ? 'linear-gradient(135deg, #d97706, #f59e0b)' : 'linear-gradient(135deg, #0d9488, #0ea5e9)'}}>
                               {t.apt}
                             </div>
-                            <p className="font-semibold text-[11px] text-gray-800 leading-tight truncate">{t.name}</p>
+                            <p className="font-bold text-sm text-gray-800 leading-tight truncate">{t.name}</p>
                             {t.feePercent && Number(t.feePercent) !== 100 && (
-                              <span className="text-[9px] text-amber-600 font-medium bg-amber-50 border border-amber-200 px-1 py-0.5 rounded-full mt-0.5 inline-block">{t.feePercent}%</span>
+                              <span className="text-[10px] text-amber-600 font-medium bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full mt-1 inline-block">{t.feePercent}%</span>
                             )}
-                            <div className="mt-1">
+                            <div className="mt-1.5">
                               {debt > 0 && (
-                                <div className="text-[10px] font-semibold text-red-500">₪{debt.toLocaleString()} חוב</div>
+                                <div className="text-xs font-semibold text-red-500">₪{debt.toLocaleString()} חוב</div>
                               )}
                               {credit > 0 && (
-                                <div className="text-[10px] font-semibold text-green-600">₪{credit.toLocaleString()} זכות</div>
+                                <div className="text-xs font-semibold text-green-600">₪{credit.toLocaleString()} זכות</div>
                               )}
                               {debt === 0 && credit === 0 && (
-                                <div className="text-[10px] font-semibold text-teal-500">מעודכן ✓</div>
+                                <div className="text-xs font-semibold text-teal-500">מעודכן ✓</div>
                               )}
                             </div>
                           </div>
