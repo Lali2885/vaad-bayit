@@ -457,6 +457,8 @@ export default function App() {
   const logoInputRef = useRef(null);
   const dataLoadedForUser = useRef(null);
   const orphanCleanedRef = useRef(false);
+  const skipTenantsSaveRef = useRef(false);
+  const skipSettingsSaveRef = useRef(false);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
@@ -493,7 +495,11 @@ export default function App() {
     try {
       const ct = localStorage.getItem(cacheKeyT);
       const cs = localStorage.getItem(cacheKeyS);
-      if (ct && cs) { setTenants(JSON.parse(ct)); setSettings(JSON.parse(cs)); hasCache = true; }
+      if (ct && cs) {
+        skipTenantsSaveRef.current = true;
+        skipSettingsSaveRef.current = true;
+        setTenants(JSON.parse(ct)); setSettings(JSON.parse(cs)); hasCache = true;
+      }
     } catch (e) {}
     if (!hasCache) setDataLoading(true);
 
@@ -540,6 +546,7 @@ export default function App() {
           .upsert({ user_id: session.user.id, data: loadedTenants, last_auto_month: autoKey }, { onConflict: 'user_id' })
           .then(({ error }) => { if (error) setDbError(`שגיאת שמירה: ${error.message} (${error.code})`); });
       }
+      skipTenantsSaveRef.current = true;
       setTenants(loadedTenants);
       try { localStorage.setItem(cacheKeyT, JSON.stringify(loadedTenants)); } catch (e) {}
 
@@ -559,6 +566,7 @@ export default function App() {
         loadedSettings = INITIAL_SETTINGS;
         supabase.from('app_settings').upsert({ user_id: session.user.id, data: INITIAL_SETTINGS });
       }
+      skipSettingsSaveRef.current = true;
       setSettings(loadedSettings);
       try { localStorage.setItem(cacheKeyS, JSON.stringify(loadedSettings)); } catch (e) {}
       setDataLoading(false);
@@ -567,6 +575,7 @@ export default function App() {
 
   useEffect(() => {
     if (!session || !tenants) return;
+    if (skipTenantsSaveRef.current) { skipTenantsSaveRef.current = false; return; }
     const t = setTimeout(async () => {
       const { error } = await supabase.from('app_tenants')
         .update({ data: tenants })
@@ -579,6 +588,7 @@ export default function App() {
 
   useEffect(() => {
     if (!session || !settings) return;
+    if (skipSettingsSaveRef.current) { skipSettingsSaveRef.current = false; return; }
     const t = setTimeout(async () => {
       const { error } = await supabase.from('app_settings')
         .update({ data: settings })
@@ -667,8 +677,9 @@ export default function App() {
     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 36px; border-bottom: 2px solid #0d9488; padding-bottom: 20px; }
     .header-title h1 { font-size: 22px; font-weight: bold; color: #0f766e; margin-bottom: 6px; }
     .header-title p { font-size: 14px; color: #555; }
+    .header-title .apt-label { font-size: 14px; font-weight: 600; color: #0f766e; margin-bottom: 6px; }
     .header-info { text-align: left; font-size: 12px; color: #777; line-height: 1.8; }
-    .header-logo { max-height: 60px; max-width: 150px; object-fit: contain; display: block; margin-bottom: 8px; }
+    .header-logo { max-height: 100px; max-width: 240px; object-fit: contain; display: block; margin-bottom: 8px; }
     .section-title { font-size: 15px; font-weight: bold; color: #0f766e; margin: 28px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #ccfbf1; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th { background: #f0fdfa; color: #0f766e; padding: 9px 14px; text-align: right; font-weight: bold; border-bottom: 2px solid #0d9488; }
@@ -688,13 +699,13 @@ export default function App() {
   <div class="header">
     <div class="header-title">
       <h1>משפחת ${tenant.name} היקרה,</h1>
+      <p class="apt-label">דירה ${tenant.apt}</p>
       <p>להלן פירוט התשלומים שלכם נכון לחודש ${curMonth} ${curYear}</p>
     </div>
     <div class="header-info">
       ${settings.logo ? `<img src="${settings.logo}" class="header-logo" />` : ''}
       <div>${settings.buildingName || ''}</div>
       <div>${settings.address || ''}</div>
-      <div>דירה ${tenant.apt}</div>
     </div>
   </div>
 
@@ -751,9 +762,17 @@ export default function App() {
   }
 
   function saveSettings() {
+    skipSettingsSaveRef.current = true;
     setSettings(settingsData);
     setSettingsSaved(true);
     setTimeout(() => setSettingsSaved(false), 2000);
+    if (session) {
+      supabase.from('app_settings').update({ data: settingsData }).eq('user_id', session.user.id)
+        .then(({ error }) => {
+          if (error) console.error('שגיאת שמירת הגדרות:', error);
+          else try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settingsData)); } catch (e) {}
+        });
+    }
   }
 
   function applyFeeToAllTenants(amount, fromMonth, fromYear) {
