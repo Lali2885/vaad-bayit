@@ -1098,8 +1098,8 @@ export default function App() {
               ].map(floor => {
                 const floorTenants = tenants.filter(t => floor.apts.includes(t.apt));
                 return (
-                  <div key={floor.label} className={floor.full ? 'col-span-2' : ''}>
-                    <h3 className={`text-xs font-bold mb-2 pb-1 border-b ${floor.rental ? 'text-amber-600 border-amber-200' : 'text-teal-700 border-teal-100'}`}>{floor.label}</h3>
+                  <div key={floor.label} className={`rounded-2xl border p-4 ${floor.full ? 'col-span-2 border-amber-200 bg-amber-50/30' : 'border-teal-100 bg-white'}`}>
+                    <h3 className={`text-xs font-bold mb-3 pb-1.5 border-b ${floor.rental ? 'text-amber-600 border-amber-200' : 'text-teal-700 border-teal-100'}`}>{floor.label}</h3>
                     <div className={`grid gap-3 ${floor.full ? 'grid-cols-5' : 'grid-cols-3'}`}>
                       {floorTenants.map(t => {
                         const debt = calcDebt(t);
