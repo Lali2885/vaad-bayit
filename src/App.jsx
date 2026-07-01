@@ -1100,14 +1100,14 @@ export default function App() {
                 return (
                   <div key={floor.label} className={floor.full ? 'col-span-2' : ''}>
                     <h3 className={`text-xs font-bold mb-2 pb-1 border-b ${floor.rental ? 'text-amber-600 border-amber-200' : 'text-teal-700 border-teal-100'}`}>{floor.label}</h3>
-                    <div className="flex flex-wrap gap-2">
+                    <div className={`grid gap-3 ${floor.full ? 'grid-cols-5' : 'grid-cols-3'}`}>
                       {floorTenants.map(t => {
                         const debt = calcDebt(t);
                         const credit = calcCredit(t);
                         const isRental = floor.rental;
                         return (
                           <div key={t.id} onClick={() => openTenant(t.id)}
-                            className={`p-4 rounded-2xl border text-center cursor-pointer hover:shadow-lg transition-all w-36 ${
+                            className={`p-4 rounded-2xl border text-center cursor-pointer hover:shadow-lg transition-all ${
                               isRental
                                 ? debt > 0 ? 'bg-orange-50 border-orange-200' : 'bg-amber-50 border-amber-200'
                                 : debt > 0 ? 'bg-red-50 border-red-100' : 'bg-teal-50/60 border-teal-100'
