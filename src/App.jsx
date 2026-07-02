@@ -1639,7 +1639,7 @@ export default function App() {
                   <button onClick={() => {
                     const { month: curM, year: curY, day: curD } = getCurrentHebrewDate();
                     const newExp = key === 'electricityExpenses'
-                      ? { id: Date.now(), fromDay: curD, fromMonth: curM, fromYear: curY, toDay: '', toMonth: '', toYear: '', totalAmount: 0, paymentMethod: '', paymentDay: '', paymentMonth: '', paymentYear: '', note: '' }
+                      ? { id: Date.now(), fromGreg: '', fromDay: curD, fromMonth: curM, fromYear: curY, toGreg: '', toDay: '', toMonth: '', toYear: '', totalAmount: 0, paymentMethod: '', paymentGreg: '', paymentDay: '', paymentMonth: '', paymentYear: '', note: '' }
                       : { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, hebrewDay: curD, hebrewMonth: curM, hebrewYear: curY, note: '' };
                     setSettings(s => ({ ...s, [key]: [...(s[key] || []), newExp] }));
                   }} className="flex items-center gap-2 bg-teal-700 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-teal-600 transition">
@@ -1667,14 +1667,14 @@ export default function App() {
                               <tr key={exp.id} className={`border-b group transition ${exp.paymentMethod ? 'bg-green-50/40 hover:bg-green-50/70' : 'bg-red-50/40 hover:bg-red-50/70'}`}>
                                 <td className="px-3 py-3">
                                   <input type="date"
-                                    value={hebDateToGregStr(exp.fromDay, exp.fromMonth, exp.fromYear)}
-                                    onChange={e => { if (!e.target.value) return; const [yy,mm,dd]=e.target.value.split('-').map(Number); const h=gregorianToHebrewDate(new Date(yy,mm-1,dd)); setSettings(s=>({...s,[key]:s[key].map(x=>x.id===exp.id?{...x,fromDay:h.day,fromMonth:h.month,fromYear:h.year}:x)})); }}
+                                    value={exp.fromGreg || hebDateToGregStr(exp.fromDay, exp.fromMonth, exp.fromYear)}
+                                    onChange={e => { const g=e.target.value; if (!g) return; const [yy,mm,dd]=g.split('-').map(Number); const h=gregorianToHebrewDate(new Date(yy,mm-1,dd)); setSettings(s=>({...s,[key]:s[key].map(x=>x.id===exp.id?{...x,fromGreg:g,fromDay:h.day,fromMonth:h.month,fromYear:h.year}:x)})); }}
                                     className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400" />
                                 </td>
                                 <td className="px-3 py-3">
                                   <input type="date"
-                                    value={hebDateToGregStr(exp.toDay, exp.toMonth, exp.toYear)}
-                                    onChange={e => { if (!e.target.value) return; const [yy,mm,dd]=e.target.value.split('-').map(Number); const h=gregorianToHebrewDate(new Date(yy,mm-1,dd)); setSettings(s=>({...s,[key]:s[key].map(x=>x.id===exp.id?{...x,toDay:h.day,toMonth:h.month,toYear:h.year}:x)})); }}
+                                    value={exp.toGreg || hebDateToGregStr(exp.toDay, exp.toMonth, exp.toYear)}
+                                    onChange={e => { const g=e.target.value; if (!g) return; const [yy,mm,dd]=g.split('-').map(Number); const h=gregorianToHebrewDate(new Date(yy,mm-1,dd)); setSettings(s=>({...s,[key]:s[key].map(x=>x.id===exp.id?{...x,toGreg:g,toDay:h.day,toMonth:h.month,toYear:h.year}:x)})); }}
                                     className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400" />
                                 </td>
                                 <td className="px-3 py-3">
@@ -1698,8 +1698,8 @@ export default function App() {
                                 </td>
                                 <td className="px-3 py-3">
                                   <input type="date"
-                                    value={hebDateToGregStr(exp.paymentDay, exp.paymentMonth, exp.paymentYear)}
-                                    onChange={e => { if (!e.target.value) return; const [yy,mm,dd]=e.target.value.split('-').map(Number); const h=gregorianToHebrewDate(new Date(yy,mm-1,dd)); setSettings(s=>({...s,[key]:s[key].map(x=>x.id===exp.id?{...x,paymentDay:h.day,paymentMonth:h.month,paymentYear:h.year}:x)})); }}
+                                    value={exp.paymentGreg || hebDateToGregStr(exp.paymentDay, exp.paymentMonth, exp.paymentYear)}
+                                    onChange={e => { const g=e.target.value; if (!g) return; const [yy,mm,dd]=g.split('-').map(Number); const h=gregorianToHebrewDate(new Date(yy,mm-1,dd)); setSettings(s=>({...s,[key]:s[key].map(x=>x.id===exp.id?{...x,paymentGreg:g,paymentDay:h.day,paymentMonth:h.month,paymentYear:h.year}:x)})); }}
                                     className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400" />
                                 </td>
                                 <td className="px-3 py-3">
