@@ -1984,6 +1984,9 @@ export default function App() {
                                     <span className="text-xs font-bold text-red-500 whitespace-nowrap">יתרה: ₪{remaining.toLocaleString()}</span>
                                   )}
 
+                                  <input value={exp.note||''} onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,note:e.target.value} : x) }))}
+                                    placeholder="הערה..." className="w-20 border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-xs bg-transparent text-gray-800" />
+
                                   <div className="flex items-center gap-2 mr-auto">
                                     {key === 'extraordinaryExpenses' && (
                                       <>
@@ -2014,11 +2017,6 @@ export default function App() {
                                       <Trash2 size={14} />
                                     </button>
                                   </div>
-                                </div>
-
-                                <div className="mt-2">
-                                  <input value={exp.note||''} onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,note:e.target.value} : x) }))}
-                                    placeholder="הערה..." className="w-full border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-xs bg-transparent text-gray-800" />
                                 </div>
                               </div>
                             );
