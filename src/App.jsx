@@ -730,7 +730,7 @@ export default function App() {
     .header-title p { font-size: 14px; color: #555; }
     .header-title .apt-label { font-size: 14px; font-weight: 600; color: #0f766e; margin-bottom: 6px; }
     .header-info { text-align: left; font-size: 12px; color: #777; line-height: 1.8; }
-    .header-logo { max-height: 100px; max-width: 240px; object-fit: contain; display: block; margin-bottom: 8px; background: #fff; }
+    .header-logo { max-height: 150px; max-width: 300px; object-fit: contain; display: block; margin-bottom: 8px; background: #fff; }
     .section-title { font-size: 15px; font-weight: bold; color: #0f766e; margin: 28px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #ccfbf1; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th { background: #f0fdfa; color: #0f766e; padding: 9px 14px; text-align: right; font-weight: bold; border-bottom: 2px solid #0d9488; }
@@ -856,7 +856,7 @@ export default function App() {
     <style>
       body { font-family: Arial, sans-serif; direction: rtl; padding: 30px; color: #222; font-size: 13px; }
       .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 2px solid #0f766e; padding-bottom: 16px; }
-      .logo { max-height: 70px; max-width: 120px; object-fit: contain; }
+      .logo { max-height: 150px; max-width: 300px; object-fit: contain; }
       .building { font-size: 18px; font-weight: bold; color: #0f766e; }
       .meta { font-size: 12px; color: #666; margin-top: 4px; }
       h3 { margin: 24px 0 8px; font-size: 15px; color: #0f766e; border-bottom: 1px solid #d1fae5; padding-bottom: 4px; }
