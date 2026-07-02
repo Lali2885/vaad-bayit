@@ -742,7 +742,7 @@ export default function App() {
     .header-logo { max-height: 150px; max-width: 300px; object-fit: contain; display: block; margin-bottom: 8px; background: #fff; }
     .year-block { margin-top: 26px; padding-top: 18px; border-top: 2px dashed #e2e8f0; }
     .year-block:first-of-type { margin-top: 6px; padding-top: 0; border-top: none; }
-    .year-title { font-size: 17px; font-weight: 800; color: #111; background: #f8fafc; border-right: 4px solid #0d9488; border-radius: 6px; padding: 8px 14px; margin-bottom: 6px; }
+    .year-title { font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; color: #111; background: #e6f0ef; border-right: 4px solid #0d9488; border-radius: 6px; padding: 8px 14px; margin-bottom: 6px; }
     .year-subtotal { font-size: 12px; color: #666; margin: 4px 2px 0; }
     .section-title { font-size: 15px; font-weight: bold; color: #0f766e; margin: 16px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #ccfbf1; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
