@@ -700,24 +700,31 @@ export default function App() {
     const { month: curMonth, year: curYear } = getCurrentHebrewDate();
     const logoSrc = settings.logo;
 
-    const sortedPayments = [...tenant.payments].filter(p => years.has(p.hebrewYear)).sort((a, b) => {
-      const ay = HEBREW_YEAR_TO_NUMERIC[a.hebrewYear] || 0;
-      const by = HEBREW_YEAR_TO_NUMERIC[b.hebrewYear] || 0;
-      if (ay !== by) return ay - by;
-      return TWELVE_MONTHS.indexOf(a.hebrewMonth) - TWELVE_MONTHS.indexOf(b.hebrewMonth);
+    const expenseYearMap = new Map((settings.extraordinaryExpenses || []).map(e => [e.id, e.hebrewYear]));
+
+    const sortedYears = [...years].sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[a] || 0) - (HEBREW_YEAR_TO_NUMERIC[b] || 0));
+
+    const yearsData = sortedYears.map(year => {
+      const yearPayments = tenant.payments
+        .filter(p => p.hebrewYear === year)
+        .sort((a, b) => TWELVE_MONTHS.indexOf(a.hebrewMonth) - TWELVE_MONTHS.indexOf(b.hebrewMonth));
+      const paidPayments = yearPayments.filter(p => p.status === 'שולם');
+      const debtPayments = yearPayments.filter(p => {
+        const rem = p.amount - (p.paidAmount || 0);
+        return p.status === 'חוב' && rem > 0;
+      });
+      const debtCharges = (tenant.charges || []).filter(c =>
+        c.expenseId && c.status === 'חוב' && expenseYearMap.get(c.expenseId) === year);
+
+      const yearPaidTotal = paidPayments.reduce((s, p) => s + (p.paidAmount || p.amount), 0);
+      const yearDebtTotal = debtPayments.reduce((s, p) => s + p.amount - (p.paidAmount || 0), 0)
+        + debtCharges.reduce((s, c) => s + c.amount, 0);
+
+      return { year, paidPayments, debtPayments, debtCharges, yearPaidTotal, yearDebtTotal };
     });
 
-    const paidPayments = sortedPayments.filter(p => p.status === 'שולם');
-    const debtPayments = sortedPayments.filter(p => {
-      const rem = p.amount - (p.paidAmount || 0);
-      return p.status === 'חוב' && rem > 0;
-    });
-    const allCharges = (tenant.charges || []).filter(c => c.expenseId);
-    const debtCharges = allCharges.filter(c => c.status === 'חוב');
-
-    const totalPaid = paidPayments.reduce((s, p) => s + (p.paidAmount || p.amount), 0);
-    const totalDebtAmt = debtPayments.reduce((s, p) => s + p.amount - (p.paidAmount || 0), 0)
-      + debtCharges.reduce((s, c) => s + c.amount, 0);
+    const totalPaid = yearsData.reduce((s, y) => s + y.yearPaidTotal, 0);
+    const totalDebtAmt = yearsData.reduce((s, y) => s + y.yearDebtTotal, 0);
 
     const html = `<!DOCTYPE html>
 <html dir="rtl" lang="he">
@@ -733,7 +740,11 @@ export default function App() {
     .header-title .apt-label { font-size: 14px; font-weight: 600; color: #0f766e; margin-bottom: 6px; }
     .header-info { text-align: left; font-size: 12px; color: #777; line-height: 1.8; }
     .header-logo { max-height: 150px; max-width: 300px; object-fit: contain; display: block; margin-bottom: 8px; background: #fff; }
-    .section-title { font-size: 15px; font-weight: bold; color: #0f766e; margin: 28px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #ccfbf1; }
+    .year-block { margin-top: 26px; padding-top: 18px; border-top: 2px dashed #e2e8f0; }
+    .year-block:first-of-type { margin-top: 6px; padding-top: 0; border-top: none; }
+    .year-title { font-size: 17px; font-weight: 800; color: #111; background: #f8fafc; border-right: 4px solid #0d9488; border-radius: 6px; padding: 8px 14px; margin-bottom: 6px; }
+    .year-subtotal { font-size: 12px; color: #666; margin: 4px 2px 0; }
+    .section-title { font-size: 15px; font-weight: bold; color: #0f766e; margin: 16px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #ccfbf1; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th { background: #f0fdfa; color: #0f766e; padding: 9px 14px; text-align: right; font-weight: bold; border-bottom: 2px solid #0d9488; }
     td { padding: 8px 14px; border-bottom: 1px solid #e5e7eb; }
@@ -745,7 +756,7 @@ export default function App() {
     .summary-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 14px; color: #444; }
     .summary-total { font-size: 17px; font-weight: bold; border-top: 1px solid #0d9488; margin-top: 10px; padding-top: 10px; color: ${totalDebtAmt > 0 ? '#dc2626' : '#16a34a'}; }
     .footer { margin-top: 40px; font-size: 11px; color: #aaa; text-align: center; }
-    @media print { body { padding: 20px 30px; } }
+    @media print { body { padding: 20px 30px; } .year-block { break-inside: avoid; } }
   </style>
   <script>
     window.addEventListener('load', function() {
@@ -776,38 +787,50 @@ export default function App() {
     </div>
   </div>
 
-  ${debtsOnly ? '' : `
-  <div class="section-title">תשלומים ששולמו</div>
-  ${paidPayments.length > 0
-    ? `<table>
-        <thead><tr><th>שנה</th><th>חודש</th><th>סכום ששולם</th></tr></thead>
-        <tbody>
-          ${paidPayments.map(p => `<tr>
-            <td>${p.hebrewYear}</td>
-            <td>${p.hebrewMonth}</td>
-            <td class="paid">₪${(p.paidAmount || p.amount).toLocaleString()}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>`
-    : `<p class="empty">אין תשלומים רשומים</p>`}
-  `}
+  ${yearsData.map(({ year, paidPayments, debtPayments, debtCharges, yearPaidTotal, yearDebtTotal }) => `
+  <div class="year-block">
+    <div class="year-title">שנת ${year}</div>
 
-  <div class="section-title">חובות פתוחים</div>
-  ${debtPayments.length > 0 || debtCharges.length > 0
-    ? `<table>
-        <thead><tr><th>תיאור</th><th>סכום לתשלום</th></tr></thead>
-        <tbody>
-          ${debtPayments.map(p => `<tr>
-            <td>ועד בית — ${p.hebrewMonth} ${p.hebrewYear}</td>
-            <td class="debt">₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}</td>
-          </tr>`).join('')}
-          ${debtCharges.map(c => `<tr>
-            <td>${c.description || 'הוצאה חריגה'}</td>
-            <td class="debt">₪${c.amount.toLocaleString()}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>`
-    : `<p class="empty" style="color:#16a34a">✓ אין חובות פתוחים</p>`}
+    ${debtsOnly ? '' : `
+    <div class="section-title">תשלומים ששולמו</div>
+    ${paidPayments.length > 0
+      ? `<table>
+          <thead><tr><th>חודש</th><th>סכום ששולם</th><th>הערות</th></tr></thead>
+          <tbody>
+            ${paidPayments.map(p => `<tr>
+              <td>${p.hebrewMonth}</td>
+              <td class="paid">₪${(p.paidAmount || p.amount).toLocaleString()}</td>
+              <td>${p.note || ''}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`
+      : `<p class="empty">אין תשלומים רשומים</p>`}
+    <div class="year-subtotal">סה"כ שולם לשנת ${year}: <span class="paid">₪${yearPaidTotal.toLocaleString()}</span></div>
+    `}
+
+    <div class="section-title">חובות פתוחים</div>
+    ${debtPayments.length > 0 || debtCharges.length > 0
+      ? `<table>
+          <thead><tr><th>תיאור</th><th>סכום לתשלום</th><th>הערות</th></tr></thead>
+          <tbody>
+            ${debtPayments.map(p => `<tr>
+              <td>ועד בית — ${p.hebrewMonth}</td>
+              <td class="debt">₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}</td>
+              <td>${p.note || ''}</td>
+            </tr>`).join('')}
+            ${debtCharges.map(c => `<tr>
+              <td>${c.description || 'הוצאה חריגה'}</td>
+              <td class="debt">₪${c.amount.toLocaleString()}</td>
+              <td>${c.note || ''}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`
+      : `<p class="empty" style="color:#16a34a">✓ אין חובות פתוחים</p>`}
+    ${debtPayments.length > 0 || debtCharges.length > 0
+      ? `<div class="year-subtotal">סה"כ חוב לשנת ${year}: <span class="debt">₪${yearDebtTotal.toLocaleString()}</span></div>`
+      : ''}
+  </div>
+  `).join('')}
 
   <div class="summary">
     ${debtsOnly ? '' : `<div class="summary-row"><span>סה"כ שולם</span><span class="paid">₪${totalPaid.toLocaleString()}</span></div>`}
