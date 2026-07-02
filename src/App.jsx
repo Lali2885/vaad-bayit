@@ -1344,7 +1344,7 @@ export default function App() {
                               </td>
                               <td className="py-2 text-gray-300 text-xs">—</td>
                               <td className="py-2">
-                                <input value={p.note || ''} onChange={e => setEditData(d => ({...d, payments: d.payments.map((x,j) => j===i?{...x,note:e.target.value}:x)}))} placeholder="הערה..." className="border rounded px-2 py-1 text-xs w-24" />
+                                <input value={p.note || ''} onChange={e => setEditData(d => ({...d, payments: d.payments.map((x,j) => j===i?{...x,note:e.target.value}:x)}))} placeholder="הערה..." className="border border-gray-200 rounded-lg px-2 py-1 text-xs bg-gray-50 hover:bg-white focus:border-teal-400 focus:outline-none w-24 transition" />
                               </td>
                               <td className="py-2 text-left">
                                 <button onClick={() => setEditData(d => ({...d, payments: d.payments.filter(x => x.id !== p.id)}))} className="text-gray-200 hover:text-red-400 transition"><Trash2 size={13} /></button>
@@ -1400,12 +1400,12 @@ export default function App() {
                                 : <span className={`font-semibold text-xs ${remaining > 0 ? 'text-red-500' : 'text-green-600'}`}>₪{remaining.toLocaleString()}</span>
                               }
                             </td>
-                            <td className="py-2">
+                            <td className="py-2 pl-4">
                               <input
                                 value={p.note || ''}
                                 onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, payments: t.payments.map(x => x.id !== p.id ? x : { ...x, note: e.target.value }) }))}
                                 placeholder="הערה..."
-                                className="border-b border-transparent hover:border-gray-300 focus:border-teal-400 focus:outline-none text-xs bg-transparent w-full text-gray-500 min-w-[70px]"
+                                className="border border-gray-200 rounded-lg px-2 py-1 text-xs bg-gray-50 hover:bg-white focus:border-teal-400 focus:outline-none focus:bg-white text-gray-600 w-full min-w-[80px] transition"
                               />
                             </td>
                             <td className="py-2 text-left">
