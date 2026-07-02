@@ -1309,6 +1309,7 @@ export default function App() {
                       <th className="pb-2 font-medium">לתשלום</th>
                       <th className="pb-2 font-medium">שולם</th>
                       <th className="pb-2 font-medium">חוב</th>
+                      <th className="pb-2 font-medium">הערה</th>
                       <th className="pb-2"></th>
                     </tr></thead>
                     <tbody>
@@ -1319,6 +1320,8 @@ export default function App() {
                           if (!p) return (
                             <tr key={month} className="border-b bg-gray-50/50">
                               <td className="py-2 text-gray-400">{month}</td>
+                              <td className="py-2 text-gray-300 text-xs">—</td>
+                              <td className="py-2 text-gray-300 text-xs">—</td>
                               <td className="py-2 text-gray-300 text-xs">—</td>
                               <td className="py-2 text-gray-300 text-xs">—</td>
                               <td className="py-2 text-left">
@@ -1339,6 +1342,10 @@ export default function App() {
                               <td className="py-2">
                                 <input type="number" value={p.amount} onChange={e => setEditData(d => ({...d, payments: d.payments.map((x,j) => j===i?{...x,amount:Number(e.target.value)}:x)}))} onFocus={e => e.target.select()} className="border rounded px-2 py-1 text-xs w-20" />
                               </td>
+                              <td className="py-2 text-gray-300 text-xs">—</td>
+                              <td className="py-2">
+                                <input value={p.note || ''} onChange={e => setEditData(d => ({...d, payments: d.payments.map((x,j) => j===i?{...x,note:e.target.value}:x)}))} placeholder="הערה..." className="border rounded px-2 py-1 text-xs w-24" />
+                              </td>
                               <td className="py-2 text-left">
                                 <button onClick={() => setEditData(d => ({...d, payments: d.payments.filter(x => x.id !== p.id)}))} className="text-gray-200 hover:text-red-400 transition"><Trash2 size={13} /></button>
                               </td>
@@ -1348,6 +1355,7 @@ export default function App() {
                         if (!p) return (
                           <tr key={month} className="border-b bg-gray-50/40">
                             <td className="py-2 text-gray-400">{month}</td>
+                            <td className="py-2 text-gray-300 text-xs">—</td>
                             <td className="py-2 text-gray-300 text-xs">—</td>
                             <td className="py-2 text-gray-300 text-xs">—</td>
                             <td className="py-2 text-gray-300 text-xs">—</td>
@@ -1391,6 +1399,14 @@ export default function App() {
                                 ? <span className="font-semibold text-xs text-orange-400">₪{remaining.toLocaleString()}</span>
                                 : <span className={`font-semibold text-xs ${remaining > 0 ? 'text-red-500' : 'text-green-600'}`}>₪{remaining.toLocaleString()}</span>
                               }
+                            </td>
+                            <td className="py-2">
+                              <input
+                                value={p.note || ''}
+                                onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, payments: t.payments.map(x => x.id !== p.id ? x : { ...x, note: e.target.value }) }))}
+                                placeholder="הערה..."
+                                className="border-b border-transparent hover:border-gray-300 focus:border-teal-400 focus:outline-none text-xs bg-transparent w-full text-gray-500 min-w-[70px]"
+                              />
                             </td>
                             <td className="py-2 text-left">
                               <div className="flex items-center gap-1 justify-end">
@@ -1709,17 +1725,17 @@ export default function App() {
                                   </div>
                                 </td>
                                 <td className="px-2 py-2">
-                                  <div className="flex gap-0.5">
+                                  <div className="flex gap-1 flex-wrap">
                                     {[
-                                      { value: 'הוראת קבע', Icon: RefreshCw },
-                                      { value: 'העברה בנקאית', Icon: ArrowRightLeft },
-                                      { value: 'כרטיס אשראי', Icon: CreditCard },
-                                      { value: 'מזומן', Icon: Banknote },
-                                    ].map(({ value, Icon }) => (
+                                      { value: 'הוראת קבע',     emoji: '🔄', on: 'bg-blue-500 text-white',   off: 'bg-gray-100 hover:bg-blue-100' },
+                                      { value: 'העברה בנקאית', emoji: '🏦', on: 'bg-purple-500 text-white', off: 'bg-gray-100 hover:bg-purple-100' },
+                                      { value: 'כרטיס אשראי',  emoji: '💳', on: 'bg-green-500 text-white',  off: 'bg-gray-100 hover:bg-green-100' },
+                                      { value: 'מזומן',         emoji: '💵', on: 'bg-amber-400 text-white',  off: 'bg-gray-100 hover:bg-amber-100' },
+                                    ].map(({ value, emoji, on, off }) => (
                                       <button key={value} title={value}
                                         onClick={() => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x, paymentMethod: x.paymentMethod===value ? '' : value} : x) }))}
-                                        className={`p-1 rounded-lg transition ${exp.paymentMethod===value ? 'bg-teal-600 text-white' : 'text-gray-300 hover:bg-gray-100 hover:text-gray-500'}`}>
-                                        <Icon size={13} />
+                                        className={`text-sm w-7 h-7 rounded-lg transition flex items-center justify-center ${exp.paymentMethod===value ? on : off}`}>
+                                        {emoji}
                                       </button>
                                     ))}
                                   </div>
