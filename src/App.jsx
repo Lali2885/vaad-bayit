@@ -990,7 +990,7 @@ export default function App() {
       <div className="w-28 shrink-0 flex flex-col items-center py-8 gap-6 text-white"
         style={{background: 'linear-gradient(160deg, #0f766e 0%, #0284c7 60%, #0c4a6e 100%)'}}>
         {settings.logo
-          ? <img src={settings.logo} alt="לוגו" className="w-14 h-14 object-contain rounded-full bg-white/20 p-1.5 shadow" />
+          ? <img src={settings.logo} alt="לוגו" className="w-20 h-20 object-contain rounded-full bg-white/20 p-1 shadow" />
           : <Building size={38} className="text-cyan-100" />}
         <div className="flex flex-col items-center gap-2 mt-2 w-full px-2">
           <button onClick={() => setView('dashboard')} className={`flex flex-col items-center gap-1.5 w-full py-3 rounded-2xl transition-all ${view === 'dashboard' ? 'bg-white/20 text-white' : 'text-cyan-100 hover:text-white hover:bg-white/10'}`}>
