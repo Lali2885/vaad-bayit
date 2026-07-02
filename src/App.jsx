@@ -8,6 +8,7 @@ const INITIAL_SETTINGS = {
   address: 'קדושת לוי 85, ירושלים',
   managers: [{ id: 1, name: '', phone: '', email: '', role: 'יו"ר הוועד' }],
   logo: null,
+  pdfLogo: null,
   feeHistory: [
     { id: 1, amount: 40, fromMonth: 'תשרי',  fromYear: 'תשפ״ו', note: '' },
     { id: 2, amount: 80, fromMonth: 'תמוז',  fromYear: 'תשפ״ו', note: 'עדכון תעריף' },
@@ -456,6 +457,7 @@ export default function App() {
   const [showTenantMsg, setShowTenantMsg] = useState(false);
   const [tenantMsgText, setTenantMsgText] = useState('');
   const logoInputRef = useRef(null);
+  const pdfLogoInputRef = useRef(null);
   const dataLoadedForUser = useRef(null);
   const skipTenantsSaveRef = useRef(false);
   const skipSettingsSaveRef = useRef(false);
@@ -717,8 +719,8 @@ export default function App() {
       <p>להלן פירוט התשלומים שלכם נכון לחודש ${curMonth} ${curYear}</p>
     </div>
     <div class="header-info">
-      ${settings.logo
-        ? `<img src="${settings.logo}" class="header-logo" />`
+      ${(settings.pdfLogo || settings.logo)
+        ? `<img src="${settings.pdfLogo || settings.logo}" class="header-logo" />`
         : `<div>${settings.buildingName || ''}</div><div>${settings.address || ''}</div>`}
     </div>
   </div>
@@ -809,7 +811,7 @@ export default function App() {
     }));
   }
 
-  function handleLogoUpload(e) {
+  function handlePdfLogoUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
@@ -825,7 +827,27 @@ export default function App() {
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        setSettingsData(d => ({ ...d, logo: canvas.toDataURL('image/jpeg', 0.92) }));
+        setSettingsData(d => ({ ...d, pdfLogo: canvas.toDataURL('image/jpeg', 0.92) }));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleLogoUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 300;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        setSettingsData(d => ({ ...d, logo: canvas.toDataURL('image/png') }));
       };
       img.src = ev.target.result;
     };
@@ -1777,6 +1799,32 @@ export default function App() {
                       </button>
                       {settingsData.logo && (
                         <button onClick={() => setSettingsData(d => ({ ...d, logo: null }))} className="flex items-center gap-1 border border-red-200 text-red-500 px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-50 transition">
+                          <X size={14} /> הסר
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* PDF Logo */}
+              <div className="bg-white p-6 rounded-2xl border shadow-sm">
+                <h3 className="font-bold text-base text-teal-800 mb-1">לוגו למסמכים (PDF)</h3>
+                <p className="text-xs text-gray-400 mb-4">לוגו נפרד עם רקע לבן — יופיע בלבד במסמכים המודפסים.</p>
+                <div className="flex items-center gap-6">
+                  <div className="w-28 h-28 rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden bg-white shrink-0">
+                    {settingsData.pdfLogo
+                      ? <img src={settingsData.pdfLogo} alt="לוגו PDF" className="w-full h-full object-contain p-1" />
+                      : <ImageOff size={32} className="text-gray-300" />}
+                  </div>
+                  <div>
+                    <input ref={pdfLogoInputRef} type="file" accept="image/*" onChange={handlePdfLogoUpload} className="hidden" />
+                    <div className="flex gap-2">
+                      <button onClick={() => pdfLogoInputRef.current.click()} className="flex items-center gap-2 bg-teal-700 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-teal-600 transition">
+                        <Upload size={14} /> העלה לוגו למסמכים
+                      </button>
+                      {settingsData.pdfLogo && (
+                        <button onClick={() => setSettingsData(d => ({ ...d, pdfLogo: null }))} className="flex items-center gap-1 border border-red-200 text-red-500 px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-50 transition">
                           <X size={14} /> הסר
                         </button>
                       )}
