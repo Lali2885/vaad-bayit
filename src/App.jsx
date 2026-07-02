@@ -1725,20 +1725,16 @@ export default function App() {
                                   </div>
                                 </td>
                                 <td className="px-2 py-2">
-                                  <div className="flex gap-1 flex-wrap">
-                                    {[
-                                      { value: 'הוראת קבע',     emoji: '🔄', on: 'bg-blue-500 text-white',   off: 'bg-gray-100 hover:bg-blue-100' },
-                                      { value: 'העברה בנקאית', emoji: '🏦', on: 'bg-purple-500 text-white', off: 'bg-gray-100 hover:bg-purple-100' },
-                                      { value: 'כרטיס אשראי',  emoji: '💳', on: 'bg-green-500 text-white',  off: 'bg-gray-100 hover:bg-green-100' },
-                                      { value: 'מזומן',         emoji: '💵', on: 'bg-amber-400 text-white',  off: 'bg-gray-100 hover:bg-amber-100' },
-                                    ].map(({ value, emoji, on, off }) => (
-                                      <button key={value} title={value}
-                                        onClick={() => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x, paymentMethod: x.paymentMethod===value ? '' : value} : x) }))}
-                                        className={`text-sm w-7 h-7 rounded-lg transition flex items-center justify-center ${exp.paymentMethod===value ? on : off}`}>
-                                        {emoji}
-                                      </button>
-                                    ))}
-                                  </div>
+                                  <select
+                                    value={exp.paymentMethod || ''}
+                                    onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x, paymentMethod: e.target.value} : x) }))}
+                                    className="border border-gray-200 rounded-lg px-2 py-1 text-xs bg-gray-50 focus:border-teal-400 focus:outline-none text-gray-600 w-full">
+                                    <option value="">— בחר —</option>
+                                    <option>הוראת קבע</option>
+                                    <option>העברה בנקאית</option>
+                                    <option>כרטיס אשראי</option>
+                                    <option>מזומן</option>
+                                  </select>
                                 </td>
                                 <td className="px-2 py-2">
                                   <input type="date"
