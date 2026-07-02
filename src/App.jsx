@@ -823,18 +823,23 @@ export default function App() {
   function printExpensesReport() {
     const today = new Date();
     const dateStr = today.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const logo = settings.logoUrl || '';
+    const logo = settings.logo || '';
 
-    const fmtGreg = g => g.split('-').reverse().join('/');
+    const fmtGreg = g => g ? g.split('-').reverse().join('/') : '';
+    const elecDate = (greg, d, m, y) => {
+      if (greg) return fmtGreg(greg);
+      const iso = hebDateToGregStr(d, m, y);
+      return iso ? fmtGreg(iso) : '';
+    };
     const fmtHeb = (d, m, y) => `${d || ''} ${m || ''} ${y || ''}`.trim();
 
     const elecRows = (settings.electricityExpenses || []).map(e => `
       <tr class="${e.paymentMethod ? 'paid' : 'unpaid'}">
-        <td>${e.fromGreg ? fmtGreg(e.fromGreg) : fmtHeb(e.fromDay, e.fromMonth, e.fromYear)}</td>
-        <td>${e.toGreg ? fmtGreg(e.toGreg) : fmtHeb(e.toDay, e.toMonth, e.toYear)}</td>
+        <td>${elecDate(e.fromGreg, e.fromDay, e.fromMonth, e.fromYear)}</td>
+        <td>${elecDate(e.toGreg, e.toDay, e.toMonth, e.toYear)}</td>
         <td>₪${(e.totalAmount || 0).toLocaleString()}</td>
         <td>${e.paymentMethod || '—'}</td>
-        <td>${e.paymentGreg ? fmtGreg(e.paymentGreg) : fmtHeb(e.paymentDay, e.paymentMonth, e.paymentYear) || '—'}</td>
+        <td>${elecDate(e.paymentGreg, e.paymentDay, e.paymentMonth, e.paymentYear) || '—'}</td>
         <td>${e.note || ''}</td>
       </tr>`).join('');
 
