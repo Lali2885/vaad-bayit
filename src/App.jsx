@@ -693,7 +693,7 @@ export default function App() {
     .header-title p { font-size: 14px; color: #555; }
     .header-title .apt-label { font-size: 14px; font-weight: 600; color: #0f766e; margin-bottom: 6px; }
     .header-info { text-align: left; font-size: 12px; color: #777; line-height: 1.8; }
-    .header-logo { max-height: 100px; max-width: 240px; object-fit: contain; display: block; margin-bottom: 8px; }
+    .header-logo { max-height: 100px; max-width: 240px; object-fit: contain; display: block; margin-bottom: 8px; background: #fff; }
     .section-title { font-size: 15px; font-weight: bold; color: #0f766e; margin: 28px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #ccfbf1; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th { background: #f0fdfa; color: #0f766e; padding: 9px 14px; text-align: right; font-weight: bold; border-bottom: 2px solid #0d9488; }
@@ -717,9 +717,9 @@ export default function App() {
       <p>להלן פירוט התשלומים שלכם נכון לחודש ${curMonth} ${curYear}</p>
     </div>
     <div class="header-info">
-      ${settings.logo ? `<img src="${settings.logo}" class="header-logo" />` : ''}
-      <div>${settings.buildingName || ''}</div>
-      <div>${settings.address || ''}</div>
+      ${settings.logo
+        ? `<img src="${settings.logo}" class="header-logo" />`
+        : `<div>${settings.buildingName || ''}</div><div>${settings.address || ''}</div>`}
     </div>
   </div>
 
