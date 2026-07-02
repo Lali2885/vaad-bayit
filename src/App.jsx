@@ -1914,79 +1914,64 @@ export default function App() {
                             ))}
                           </tbody>
                         </table>
-                      : <table className="w-full text-sm text-right">
-                          <thead>
-                            <tr className="border-b bg-gray-50 text-gray-500 text-xs">
-                              <th className="px-4 py-3 font-medium">תיאור</th>
-                              <th className="px-4 py-3 font-medium">תאריך</th>
-                              <th className="px-4 py-3 font-medium">סכום כולל / שולם</th>
-                              <th className="px-4 py-3 font-medium">חלק לדייר</th>
-                              <th className="px-4 py-3 font-medium">הערה</th>
-                              <th className="px-4 py-3"></th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {settings[key].map(exp => {
-                              const linkedCharges = key === 'extraordinaryExpenses'
-                                ? tenants.flatMap(t => (t.charges||[]).filter(c => c.expenseId === exp.id))
-                                : [];
-                              const isPulled = linkedCharges.length > 0;
-                              const autoPaid = linkedCharges.filter(c => c.status === 'שולם').reduce((s,c) => s + c.amount, 0);
-                              const paidAmount = isPulled ? autoPaid : (exp.paidAmount || 0);
-                              const remaining = Math.max(0, (exp.totalAmount||0) - paidAmount);
-                              const isFullyPaid = (exp.totalAmount||0) > 0 && remaining <= 0;
-                              const isPartlyPaid = paidAmount > 0 && !isFullyPaid;
-                              const rowColor = isFullyPaid ? 'bg-green-50/40 hover:bg-green-50/70' : isPartlyPaid ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'hover:bg-gray-50/50';
-                              return (
-                              <tr key={exp.id} className={`border-b group transition ${rowColor}`}>
-                                <td className="px-4 py-3">
+                      : <div className="divide-y">
+                          {settings[key].map(exp => {
+                            const linkedCharges = key === 'extraordinaryExpenses'
+                              ? tenants.flatMap(t => (t.charges||[]).filter(c => c.expenseId === exp.id))
+                              : [];
+                            const isPulled = linkedCharges.length > 0;
+                            const autoPaid = linkedCharges.filter(c => c.status === 'שולם').reduce((s,c) => s + c.amount, 0);
+                            const paidAmount = isPulled ? autoPaid : (exp.paidAmount || 0);
+                            const remaining = Math.max(0, (exp.totalAmount||0) - paidAmount);
+                            const isFullyPaid = (exp.totalAmount||0) > 0 && remaining <= 0;
+                            const isPartlyPaid = paidAmount > 0 && !isFullyPaid;
+                            const cardColor = isFullyPaid ? 'bg-green-50/40 hover:bg-green-50/70' : isPartlyPaid ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'hover:bg-gray-50/50';
+                            return (
+                              <div key={exp.id} className={`group px-4 py-3 transition ${cardColor}`}>
+                                <div className="flex items-center gap-4 flex-wrap">
                                   <input value={exp.description||''}
                                     onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,description:e.target.value} : x) }))}
                                     placeholder="תיאור ההוצאה"
-                                    className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full" />
-                                </td>
-                                <td className="px-4 py-3">
+                                    className="flex-1 min-w-[140px] border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm font-medium bg-transparent" />
+
                                   <HebrewDatePicker day={exp.hebrewDay||''} month={exp.hebrewMonth||''} year={exp.hebrewYear||''}
                                     onChange={(d,m,y) => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,hebrewDay:d,hebrewMonth:m,hebrewYear:y} : x) }))} />
-                                </td>
-                                <td className="px-4 py-3">
+
                                   <div className="flex items-center gap-1">
+                                    <span className="text-[10px] text-gray-400 whitespace-nowrap">סה"כ</span>
                                     <input type="number" value={exp.totalAmount||0} onFocus={e => e.target.select()}
                                       onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,totalAmount:Number(e.target.value)} : x) }))}
                                       className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-16" />
                                     <span className="text-xs text-gray-400">₪</span>
                                   </div>
-                                  <div className="flex items-center gap-1 mt-1">
-                                    <span className="text-[10px] text-gray-400 whitespace-nowrap">שולם:</span>
+
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[10px] text-gray-400 whitespace-nowrap">חלק לדייר</span>
+                                    <input type="number" value={exp.perTenantAmount||0} onFocus={e => e.target.select()}
+                                      onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,perTenantAmount:Number(e.target.value)} : x) }))}
+                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-16" />
+                                    <span className="text-xs text-gray-400">₪</span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[10px] text-gray-400 whitespace-nowrap">שולם</span>
                                     {isPulled ? (
-                                      <span className="text-xs font-medium text-green-700" title="מתעדכן אוטומטית לפי תשלומי הדיירים">₪{paidAmount.toLocaleString()}</span>
+                                      <span className="text-sm font-medium text-green-700" title="מתעדכן אוטומטית לפי תשלומי הדיירים">₪{paidAmount.toLocaleString()}</span>
                                     ) : (
                                       <>
                                         <input type="number" value={exp.paidAmount||0} onFocus={e => e.target.select()}
                                           onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,paidAmount:Number(e.target.value)} : x) }))}
-                                          className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-xs bg-transparent w-14 text-green-700 font-medium" />
-                                        <span className="text-[10px] text-gray-400">₪</span>
+                                          className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-16 text-green-700 font-medium" />
+                                        <span className="text-xs text-gray-400">₪</span>
                                       </>
                                     )}
                                   </div>
+
                                   {remaining > 0 && (
-                                    <div className="text-[10px] text-red-500 mt-0.5">יתרה: ₪{remaining.toLocaleString()}</div>
+                                    <span className="text-xs font-bold text-red-500 whitespace-nowrap">יתרה: ₪{remaining.toLocaleString()}</span>
                                   )}
-                                </td>
-                                <td className="px-4 py-3">
-                                  <div className="flex items-center gap-1">
-                                    <input type="number" value={exp.perTenantAmount||0} onFocus={e => e.target.select()}
-                                      onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,perTenantAmount:Number(e.target.value)} : x) }))}
-                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
-                                    <span className="text-xs text-gray-400">₪</span>
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <input value={exp.note||''} onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,note:e.target.value} : x) }))}
-                                    placeholder="הערה" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full text-gray-500" />
-                                </td>
-                                <td className="px-4 py-3 text-left">
-                                  <div className="flex items-center gap-2 justify-end">
+
+                                  <div className="flex items-center gap-2 mr-auto">
                                     {key === 'extraordinaryExpenses' && (
                                       <>
                                         <button onClick={() => {
@@ -1996,13 +1981,13 @@ export default function App() {
                                               ...t, charges: [...(t.charges||[]), { id: Date.now()+i, description: exp.description, amount: exp.perTenantAmount, status: 'חוב', note: '', expenseId: exp.id }]
                                             }
                                           ));
-                                        }} className="text-xs text-teal-600 border border-teal-200 hover:bg-teal-50 px-2 py-1 rounded-full font-medium transition whitespace-nowrap opacity-0 group-hover:opacity-100">
+                                        }} className="text-xs text-teal-600 border border-teal-200 hover:bg-teal-50 px-2 py-1 rounded-full font-medium transition whitespace-nowrap">
                                           שלוף לכולם
                                         </button>
                                         <button onClick={() => {
                                           setSelectExpModal({ expId: exp.id, description: exp.description, perTenantAmount: exp.perTenantAmount });
                                           setSelectedTenantIds(new Set());
-                                        }} className="text-xs text-purple-600 border border-purple-200 hover:bg-purple-50 px-2 py-1 rounded-full font-medium transition whitespace-nowrap opacity-0 group-hover:opacity-100">
+                                        }} className="text-xs text-purple-600 border border-purple-200 hover:bg-purple-50 px-2 py-1 rounded-full font-medium transition whitespace-nowrap">
                                           שלוף לדירות...
                                         </button>
                                       </>
@@ -2012,16 +1997,20 @@ export default function App() {
                                       if (key === 'extraordinaryExpenses') {
                                         setTenants(prev => prev.map(t => ({ ...t, charges: (t.charges||[]).filter(c => c.expenseId !== exp.id) })));
                                       }
-                                    }} className="text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100">
+                                    }} className="text-gray-300 hover:text-red-400 transition opacity-0 group-hover:opacity-100">
                                       <Trash2 size={14} />
                                     </button>
                                   </div>
-                                </td>
-                              </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                                </div>
+
+                                <div className="mt-2">
+                                  <input value={exp.note||''} onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,note:e.target.value} : x) }))}
+                                    placeholder="הערה..." className="w-full border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-xs bg-transparent text-gray-500" />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                   }
                 </div>
               </div>
