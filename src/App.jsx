@@ -206,6 +206,42 @@ const EMPTY_TENANT = { name: '', apt: '', phone: '', email: '', idCard: '', dueD
 const HEB_DAYS = ['א','ב','ג','ד','ה','ו','ז','ח','ט','י','יא','יב','יג','יד','טו','טז','יז','יח','יט','כ','כא','כב','כג','כד','כה','כו','כז','כח','כט','ל'];
 const MONTH_DAYS = {'תשרי':30,'חשוון':29,'כסלו':30,'טבת':29,'שבט':30,'אדר':29,'אדר א׳':30,'אדר ב׳':29,'ניסן':30,'אייר':29,'סיוון':30,'תמוז':29,'אב':30,'אלול':29};
 
+function gregorianToHebrewDate(gregDate) {
+  const diff = Math.round((gregDate.getTime() - _REF_GREG.getTime()) / 86400000);
+  const targetElapsed = _REF_ELAPSED + diff;
+  let year = 5786 + Math.floor(diff / 365);
+  while (_hebElapsed(year + 1) <= targetElapsed) year++;
+  while (_hebElapsed(year) > targetElapsed) year--;
+  const isLeap = ((7 * year) + 1) % 19 < 7;
+  const numMonths = isLeap ? 13 : 12;
+  let rem = targetElapsed - _hebElapsed(year);
+  let monthNum = 1;
+  while (monthNum < numMonths && rem >= _hebDaysInMonth(year, monthNum)) {
+    rem -= _hebDaysInMonth(year, monthNum); monthNum++;
+  }
+  const allMonths = isLeap
+    ? ['תשרי','חשוון','כסלו','טבת','שבט','אדר א׳','אדר ב׳','ניסן','אייר','סיוון','תמוז','אב','אלול']
+    : ['תשרי','חשוון','כסלו','טבת','שבט','אדר','ניסן','אייר','סיוון','תמוז','אב','אלול'];
+  const hebYear = numericToHebrewYear(year);
+  return { day: HEB_DAYS[rem] || '', month: allMonths[monthNum - 1], year: HEBREW_YEARS.includes(hebYear) ? hebYear : HEBREW_YEARS[1] };
+}
+
+function hebDateToGregStr(day, month, year) {
+  if (!day || !month || !year) return '';
+  const numYear = HEBREW_YEAR_TO_NUMERIC[year];
+  if (!numYear) return '';
+  const isLeap = ((7 * numYear) + 1) % 19 < 7;
+  const allMonths = isLeap
+    ? ['תשרי','חשוון','כסלו','טבת','שבט','אדר א׳','אדר ב׳','ניסן','אייר','סיוון','תמוז','אב','אלול']
+    : ['תשרי','חשוון','כסלו','טבת','שבט','אדר','ניסן','אייר','סיוון','תמוז','אב','אלול'];
+  const monthNum = allMonths.indexOf(month) + 1;
+  if (monthNum === 0) return '';
+  const dayNum = HEB_DAYS.indexOf(day) + 1;
+  if (dayNum === 0) return '';
+  const g = hebrewToGregorian(numYear, monthNum, dayNum);
+  return `${g.getFullYear()}-${String(g.getMonth()+1).padStart(2,'0')}-${String(g.getDate()).padStart(2,'0')}`;
+}
+
 function gregorianToHebrewMonth(gregDate) {
   const diff = Math.round((gregDate.getTime() - _REF_GREG.getTime()) / 86400000);
   const targetElapsed = _REF_ELAPSED + diff;
@@ -1628,14 +1664,18 @@ export default function App() {
                           </thead>
                           <tbody>
                             {settings[key].map(exp => (
-                              <tr key={exp.id} className="border-b group hover:bg-gray-50/50 transition">
+                              <tr key={exp.id} className={`border-b group transition ${exp.paymentMethod ? 'bg-green-50/40 hover:bg-green-50/70' : 'bg-red-50/40 hover:bg-red-50/70'}`}>
                                 <td className="px-3 py-3">
-                                  <HebrewDatePicker day={exp.fromDay||''} month={exp.fromMonth||''} year={exp.fromYear||''}
-                                    onChange={(d,m,y) => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,fromDay:d,fromMonth:m,fromYear:y} : x) }))} />
+                                  <input type="date"
+                                    value={hebDateToGregStr(exp.fromDay, exp.fromMonth, exp.fromYear)}
+                                    onChange={e => { if (!e.target.value) return; const [yy,mm,dd]=e.target.value.split('-').map(Number); const h=gregorianToHebrewDate(new Date(yy,mm-1,dd)); setSettings(s=>({...s,[key]:s[key].map(x=>x.id===exp.id?{...x,fromDay:h.day,fromMonth:h.month,fromYear:h.year}:x)})); }}
+                                    className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400" />
                                 </td>
                                 <td className="px-3 py-3">
-                                  <HebrewDatePicker day={exp.toDay||''} month={exp.toMonth||''} year={exp.toYear||''}
-                                    onChange={(d,m,y) => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,toDay:d,toMonth:m,toYear:y} : x) }))} />
+                                  <input type="date"
+                                    value={hebDateToGregStr(exp.toDay, exp.toMonth, exp.toYear)}
+                                    onChange={e => { if (!e.target.value) return; const [yy,mm,dd]=e.target.value.split('-').map(Number); const h=gregorianToHebrewDate(new Date(yy,mm-1,dd)); setSettings(s=>({...s,[key]:s[key].map(x=>x.id===exp.id?{...x,toDay:h.day,toMonth:h.month,toYear:h.year}:x)})); }}
+                                    className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400" />
                                 </td>
                                 <td className="px-3 py-3">
                                   <div className="flex items-center gap-1">
@@ -1657,8 +1697,10 @@ export default function App() {
                                   </select>
                                 </td>
                                 <td className="px-3 py-3">
-                                  <HebrewDatePicker day={exp.paymentDay||''} month={exp.paymentMonth||''} year={exp.paymentYear||''}
-                                    onChange={(d,m,y) => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,paymentDay:d,paymentMonth:m,paymentYear:y} : x) }))} />
+                                  <input type="date"
+                                    value={hebDateToGregStr(exp.paymentDay, exp.paymentMonth, exp.paymentYear)}
+                                    onChange={e => { if (!e.target.value) return; const [yy,mm,dd]=e.target.value.split('-').map(Number); const h=gregorianToHebrewDate(new Date(yy,mm-1,dd)); setSettings(s=>({...s,[key]:s[key].map(x=>x.id===exp.id?{...x,paymentDay:h.day,paymentMonth:h.month,paymentYear:h.year}:x)})); }}
+                                    className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400" />
                                 </td>
                                 <td className="px-3 py-3">
                                   <input value={exp.note||''} onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,note:e.target.value} : x) }))}
