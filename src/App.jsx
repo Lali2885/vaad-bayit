@@ -1919,9 +1919,7 @@ export default function App() {
                             <tr className="border-b bg-gray-50 text-gray-500 text-xs">
                               <th className="px-4 py-3 font-medium">תיאור</th>
                               <th className="px-4 py-3 font-medium">תאריך</th>
-                              <th className="px-4 py-3 font-medium">סכום כולל</th>
-                              <th className="px-4 py-3 font-medium">שולם</th>
-                              <th className="px-4 py-3 font-medium">יתרה</th>
+                              <th className="px-4 py-3 font-medium">סכום כולל / שולם</th>
                               <th className="px-4 py-3 font-medium">חלק לדייר</th>
                               <th className="px-4 py-3 font-medium">הערה</th>
                               <th className="px-4 py-3"></th>
@@ -1929,9 +1927,15 @@ export default function App() {
                           </thead>
                           <tbody>
                             {settings[key].map(exp => {
-                              const remaining = Math.max(0, (exp.totalAmount||0) - (exp.paidAmount||0));
+                              const linkedCharges = key === 'extraordinaryExpenses'
+                                ? tenants.flatMap(t => (t.charges||[]).filter(c => c.expenseId === exp.id))
+                                : [];
+                              const isPulled = linkedCharges.length > 0;
+                              const autoPaid = linkedCharges.filter(c => c.status === 'שולם').reduce((s,c) => s + c.amount, 0);
+                              const paidAmount = isPulled ? autoPaid : (exp.paidAmount || 0);
+                              const remaining = Math.max(0, (exp.totalAmount||0) - paidAmount);
                               const isFullyPaid = (exp.totalAmount||0) > 0 && remaining <= 0;
-                              const isPartlyPaid = (exp.paidAmount||0) > 0 && !isFullyPaid;
+                              const isPartlyPaid = paidAmount > 0 && !isFullyPaid;
                               const rowColor = isFullyPaid ? 'bg-green-50/40 hover:bg-green-50/70' : isPartlyPaid ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'hover:bg-gray-50/50';
                               return (
                               <tr key={exp.id} className={`border-b group transition ${rowColor}`}>
@@ -1949,20 +1953,25 @@ export default function App() {
                                   <div className="flex items-center gap-1">
                                     <input type="number" value={exp.totalAmount||0} onFocus={e => e.target.select()}
                                       onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,totalAmount:Number(e.target.value)} : x) }))}
-                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
+                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-16" />
                                     <span className="text-xs text-gray-400">₪</span>
                                   </div>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <div className="flex items-center gap-1">
-                                    <input type="number" value={exp.paidAmount||0} onFocus={e => e.target.select()}
-                                      onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,paidAmount:Number(e.target.value)} : x) }))}
-                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20 text-green-700 font-medium" />
-                                    <span className="text-xs text-gray-400">₪</span>
+                                  <div className="flex items-center gap-1 mt-1">
+                                    <span className="text-[10px] text-gray-400 whitespace-nowrap">שולם:</span>
+                                    {isPulled ? (
+                                      <span className="text-xs font-medium text-green-700" title="מתעדכן אוטומטית לפי תשלומי הדיירים">₪{paidAmount.toLocaleString()}</span>
+                                    ) : (
+                                      <>
+                                        <input type="number" value={exp.paidAmount||0} onFocus={e => e.target.select()}
+                                          onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,paidAmount:Number(e.target.value)} : x) }))}
+                                          className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-xs bg-transparent w-14 text-green-700 font-medium" />
+                                        <span className="text-[10px] text-gray-400">₪</span>
+                                      </>
+                                    )}
                                   </div>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <span className={`text-sm font-medium ${remaining > 0 ? 'text-red-500' : 'text-green-600'}`}>₪{remaining.toLocaleString()}</span>
+                                  {remaining > 0 && (
+                                    <div className="text-[10px] text-red-500 mt-0.5">יתרה: ₪{remaining.toLocaleString()}</div>
+                                  )}
                                 </td>
                                 <td className="px-4 py-3">
                                   <div className="flex items-center gap-1">
