@@ -658,24 +658,9 @@ export default function App() {
     return true;
   }
 
-  async function printTenantStatement(tenant, years) {
+  function printTenantStatement(tenant, years) {
     const { month: curMonth, year: curYear } = getCurrentHebrewDate();
-
-    const rawLogo = settings.logo;
-    const logoSrc = rawLogo ? await new Promise(resolve => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0);
-        resolve(canvas.toDataURL('image/jpeg', 0.92));
-      };
-      img.src = rawLogo;
-    }) : null;
+    const logoSrc = settings.logo;
 
     const sortedPayments = [...tenant.payments].filter(p => years.has(p.hebrewYear)).sort((a, b) => {
       const ay = HEBREW_YEAR_TO_NUMERIC[a.hebrewYear] || 0;
@@ -724,6 +709,20 @@ export default function App() {
     .footer { margin-top: 40px; font-size: 11px; color: #aaa; text-align: center; }
     @media print { body { padding: 20px 30px; } }
   </style>
+  <script>
+    window.addEventListener('load', function() {
+      var img = document.querySelector('.header-logo');
+      if (!img) return;
+      var c = document.createElement('canvas');
+      c.width = img.naturalWidth || img.width;
+      c.height = img.naturalHeight || img.height;
+      var ctx = c.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0);
+      img.src = c.toDataURL('image\/jpeg', 0.95);
+    });
+  <\/script>
 </head>
 <body>
   <div class="header">
@@ -782,7 +781,7 @@ export default function App() {
     const w = window.open('', '_blank');
     w.document.write(html);
     w.document.close();
-    setTimeout(() => w.print(), 400);
+    setTimeout(() => w.print(), 800);
   }
 
   function openSettings() {
