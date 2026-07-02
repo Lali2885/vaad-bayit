@@ -1837,7 +1837,7 @@ export default function App() {
                     const { month: curM, year: curY, day: curD } = getCurrentHebrewDate();
                     const newExp = key === 'electricityExpenses'
                       ? { id: Date.now(), fromGreg: '', fromDay: curD, fromMonth: curM, fromYear: curY, toGreg: '', toDay: '', toMonth: '', toYear: '', totalAmount: 0, paymentMethod: '', paymentGreg: '', paymentDay: '', paymentMonth: '', paymentYear: '', note: '' }
-                      : { id: Date.now(), description: '', totalAmount: 0, perTenantAmount: 0, hebrewDay: curD, hebrewMonth: curM, hebrewYear: curY, note: '' };
+                      : { id: Date.now(), description: '', totalAmount: 0, paidAmount: 0, perTenantAmount: 0, hebrewDay: curD, hebrewMonth: curM, hebrewYear: curY, note: '' };
                     setSettings(s => ({ ...s, [key]: [...(s[key] || []), newExp] }));
                   }} className="flex items-center gap-2 bg-teal-700 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-teal-600 transition">
                     <Plus size={14} /> {key === 'electricityExpenses' ? 'הוסף חשבונית' : 'הוסף הוצאה'}
@@ -1920,14 +1920,21 @@ export default function App() {
                               <th className="px-4 py-3 font-medium">תיאור</th>
                               <th className="px-4 py-3 font-medium">תאריך</th>
                               <th className="px-4 py-3 font-medium">סכום כולל</th>
+                              <th className="px-4 py-3 font-medium">שולם</th>
+                              <th className="px-4 py-3 font-medium">יתרה</th>
                               <th className="px-4 py-3 font-medium">חלק לדייר</th>
                               <th className="px-4 py-3 font-medium">הערה</th>
                               <th className="px-4 py-3"></th>
                             </tr>
                           </thead>
                           <tbody>
-                            {settings[key].map(exp => (
-                              <tr key={exp.id} className="border-b group hover:bg-gray-50/50 transition">
+                            {settings[key].map(exp => {
+                              const remaining = Math.max(0, (exp.totalAmount||0) - (exp.paidAmount||0));
+                              const isFullyPaid = (exp.totalAmount||0) > 0 && remaining <= 0;
+                              const isPartlyPaid = (exp.paidAmount||0) > 0 && !isFullyPaid;
+                              const rowColor = isFullyPaid ? 'bg-green-50/40 hover:bg-green-50/70' : isPartlyPaid ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'hover:bg-gray-50/50';
+                              return (
+                              <tr key={exp.id} className={`border-b group transition ${rowColor}`}>
                                 <td className="px-4 py-3">
                                   <input value={exp.description||''}
                                     onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,description:e.target.value} : x) }))}
@@ -1945,6 +1952,17 @@ export default function App() {
                                       className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
                                     <span className="text-xs text-gray-400">₪</span>
                                   </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-1">
+                                    <input type="number" value={exp.paidAmount||0} onFocus={e => e.target.select()}
+                                      onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,paidAmount:Number(e.target.value)} : x) }))}
+                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20 text-green-700 font-medium" />
+                                    <span className="text-xs text-gray-400">₪</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className={`text-sm font-medium ${remaining > 0 ? 'text-red-500' : 'text-green-600'}`}>₪{remaining.toLocaleString()}</span>
                                 </td>
                                 <td className="px-4 py-3">
                                   <div className="flex items-center gap-1">
@@ -1991,7 +2009,8 @@ export default function App() {
                                   </div>
                                 </td>
                               </tr>
-                            ))}
+                              );
+                            })}
                           </tbody>
                         </table>
                   }
