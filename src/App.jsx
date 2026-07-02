@@ -488,6 +488,7 @@ export default function App() {
   const [selectedTenantIds, setSelectedTenantIds] = useState(new Set());
   const [showStatementModal, setShowStatementModal] = useState(null);
   const [statementYears, setStatementYears] = useState(new Set());
+  const [statementMode, setStatementMode] = useState('full');
   const [filterYear, setFilterYear] = useState(CURRENT_HEBREW_YEAR);
   const [showTenantMsg, setShowTenantMsg] = useState(false);
   const [tenantMsgText, setTenantMsgText] = useState('');
@@ -694,7 +695,8 @@ export default function App() {
     return true;
   }
 
-  function printTenantStatement(tenant, years) {
+  function printTenantStatement(tenant, years, mode = 'full') {
+    const debtsOnly = mode === 'debtsOnly';
     const { month: curMonth, year: curYear } = getCurrentHebrewDate();
     const logoSrc = settings.logo;
 
@@ -721,7 +723,7 @@ export default function App() {
 <html dir="rtl" lang="he">
 <head>
   <meta charset="UTF-8">
-  <title>פירוט תשלומים — ${tenant.name}</title>
+  <title>${debtsOnly ? 'פירוט חובות' : 'פירוט תשלומים'} — ${tenant.name}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, sans-serif; padding: 48px 56px; color: #111; background: #fff; direction: rtl; }
@@ -765,7 +767,7 @@ export default function App() {
     <div class="header-title">
       <h1>משפחת ${tenant.name} היקרה,</h1>
       <p class="apt-label">דירה ${tenant.apt}</p>
-      <p>להלן פירוט התשלומים שלכם נכון לחודש ${curMonth} ${curYear}</p>
+      <p>להלן פירוט ${debtsOnly ? 'החובות' : 'התשלומים'} שלכם נכון לחודש ${curMonth} ${curYear}</p>
     </div>
     <div class="header-info">
       ${logoSrc
@@ -774,6 +776,7 @@ export default function App() {
     </div>
   </div>
 
+  ${debtsOnly ? '' : `
   <div class="section-title">תשלומים ששולמו</div>
   ${paidPayments.length > 0
     ? `<table>
@@ -787,6 +790,7 @@ export default function App() {
         </tbody>
       </table>`
     : `<p class="empty">אין תשלומים רשומים</p>`}
+  `}
 
   <div class="section-title">חובות פתוחים</div>
   ${debtPayments.length > 0 || debtCharges.length > 0
@@ -806,7 +810,7 @@ export default function App() {
     : `<p class="empty" style="color:#16a34a">✓ אין חובות פתוחים</p>`}
 
   <div class="summary">
-    <div class="summary-row"><span>סה"כ שולם</span><span class="paid">₪${totalPaid.toLocaleString()}</span></div>
+    ${debtsOnly ? '' : `<div class="summary-row"><span>סה"כ שולם</span><span class="paid">₪${totalPaid.toLocaleString()}</span></div>`}
     <div class="summary-row summary-total"><span>יתרת חוב לתשלום</span><span>₪${totalDebtAmt.toLocaleString()}</span></div>
   </div>
 
@@ -1707,6 +1711,7 @@ export default function App() {
                     const available = [...new Set(selectedTenant.payments.map(p => p.hebrewYear))]
                       .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
                     setStatementYears(new Set(available));
+                    setStatementMode('full');
                     setShowStatementModal(selectedTenant);
                   }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
                     <FileText size={14} /> הורד מסמך
@@ -2229,7 +2234,24 @@ export default function App() {
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowStatementModal(null)}>
             <div className="bg-white rounded-2xl shadow-2xl p-6 w-80" dir="rtl" onClick={e => e.stopPropagation()}>
               <h3 className="text-lg font-bold text-gray-800 mb-1">הפקת מסמך</h3>
-              <p className="text-sm text-gray-500 mb-4">משפחת {tenant.name} — בחרי שנים לכלול במסמך</p>
+              <p className="text-sm text-gray-500 mb-4">משפחת {tenant.name}</p>
+
+              <div className="space-y-1 mb-4">
+                <label className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 py-2 px-2 rounded-lg border border-gray-200">
+                  <input type="radio" name="statementMode" checked={statementMode === 'full'}
+                    onChange={() => setStatementMode('full')}
+                    className="w-4 h-4 accent-indigo-600" />
+                  <span className="text-sm font-medium text-gray-700">פירוט מלא — תשלומים וחובות</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 py-2 px-2 rounded-lg border border-gray-200">
+                  <input type="radio" name="statementMode" checked={statementMode === 'debtsOnly'}
+                    onChange={() => setStatementMode('debtsOnly')}
+                    className="w-4 h-4 accent-indigo-600" />
+                  <span className="text-sm font-medium text-gray-700">חובות בלבד</span>
+                </label>
+              </div>
+
+              <p className="text-sm text-gray-500 mb-2">בחרי שנים לכלול במסמך</p>
               <div className="space-y-1 mb-3 max-h-64 overflow-y-auto">
                 {availableYears.map(year => {
                   const hasDebt = tenant.payments.some(p => p.hebrewYear === year && p.status === 'חוב' && (p.amount - (p.paidAmount || 0)) > 0);
@@ -2258,7 +2280,7 @@ export default function App() {
                 <button onClick={() => setShowStatementModal(null)} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">ביטול</button>
                 <button onClick={() => {
                   if (statementYears.size === 0) return;
-                  printTenantStatement(tenant, statementYears);
+                  printTenantStatement(tenant, statementYears, statementMode);
                   setShowStatementModal(null);
                 }} disabled={statementYears.size === 0}
                   className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-indigo-700 transition disabled:opacity-40 flex items-center justify-center gap-1">
