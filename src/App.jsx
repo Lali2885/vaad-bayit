@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Home, ReceiptText, Building, ChevronRight, Mail, Bell, Plus, Pencil, Trash2, X, Check, Settings, Upload, ImageOff, MessageSquare, Banknote, LogOut, LayoutDashboard, Wallet, TrendingDown, Calendar, FileText } from 'lucide-react';
+import { Home, ReceiptText, Building, ChevronRight, Mail, Bell, Plus, Pencil, Trash2, X, Check, Settings, Upload, ImageOff, MessageSquare, Banknote, LogOut, LayoutDashboard, Wallet, TrendingDown, Calendar, FileText, Zap, CreditCard, RefreshCw, ArrowRightLeft } from 'lucide-react';
 import emailjs from '@emailjs/browser';
 import { supabase, testConnection } from './supabase';
 
@@ -1166,6 +1166,29 @@ export default function App() {
                   </div>
                 </div>
 
+                {(() => {
+                  const unpaidElec = (settings.electricityExpenses || []).filter(e => !e.paymentMethod).length;
+                  const totalElec = (settings.electricityExpenses || []).length;
+                  return (
+                    <div className={`bg-white rounded-2xl border shadow-sm p-5 col-span-2 ${unpaidElec > 0 ? 'border-red-100' : 'border-green-100'}`}>
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${unpaidElec > 0 ? 'bg-red-100' : 'bg-green-100'}`}>
+                          <Zap size={18} className={unpaidElec > 0 ? 'text-red-500' : 'text-green-600'} />
+                        </div>
+                        <span className="text-sm font-medium text-gray-500">חברת חשמל</span>
+                        <span className={`mr-auto text-xs font-bold px-2 py-0.5 rounded-full ${unpaidElec > 0 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>
+                          {unpaidElec > 0 ? `${unpaidElec} לא שולמו` : 'הכל שולם ✓'}
+                        </span>
+                      </div>
+                      <div className="flex gap-6 text-xs text-gray-400">
+                        <div className="flex justify-between gap-2"><span>סה"כ חשבוניות</span><span className="font-semibold text-gray-600">{totalElec}</span></div>
+                        <div className="flex justify-between gap-2"><span>שולמו</span><span className="font-semibold text-green-600">{totalElec - unpaidElec}</span></div>
+                        {unpaidElec > 0 && <div className="flex justify-between gap-2"><span>ממתינות לתשלום</span><span className="font-semibold text-red-500">{unpaidElec}</span></div>}
+                      </div>
+                    </div>
+                  );
+                })()}
+
               </div>
             </>
           );
@@ -1665,46 +1688,51 @@ export default function App() {
                           <tbody>
                             {settings[key].map(exp => (
                               <tr key={exp.id} className={`border-b group transition ${exp.paymentMethod ? 'bg-green-50/40 hover:bg-green-50/70' : 'bg-red-50/40 hover:bg-red-50/70'}`}>
-                                <td className="px-3 py-3">
+                                <td className="px-2 py-2">
                                   <input type="date"
                                     value={exp.fromGreg || hebDateToGregStr(exp.fromDay, exp.fromMonth, exp.fromYear)}
                                     onChange={e => { const g=e.target.value; if (!g) return; const [yy,mm,dd]=g.split('-').map(Number); const h=gregorianToHebrewDate(new Date(yy,mm-1,dd)); setSettings(s=>({...s,[key]:s[key].map(x=>x.id===exp.id?{...x,fromGreg:g,fromDay:h.day,fromMonth:h.month,fromYear:h.year}:x)})); }}
-                                    className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400" />
+                                    className="border border-gray-200 rounded px-1 py-0.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-teal-400 w-28" />
                                 </td>
-                                <td className="px-3 py-3">
+                                <td className="px-2 py-2">
                                   <input type="date"
                                     value={exp.toGreg || hebDateToGregStr(exp.toDay, exp.toMonth, exp.toYear)}
                                     onChange={e => { const g=e.target.value; if (!g) return; const [yy,mm,dd]=g.split('-').map(Number); const h=gregorianToHebrewDate(new Date(yy,mm-1,dd)); setSettings(s=>({...s,[key]:s[key].map(x=>x.id===exp.id?{...x,toGreg:g,toDay:h.day,toMonth:h.month,toYear:h.year}:x)})); }}
-                                    className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400" />
+                                    className="border border-gray-200 rounded px-1 py-0.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-teal-400 w-28" />
                                 </td>
-                                <td className="px-3 py-3">
-                                  <div className="flex items-center gap-1">
+                                <td className="px-2 py-2">
+                                  <div className="flex items-center gap-0.5">
                                     <input type="number" value={exp.totalAmount||0} onFocus={e => e.target.select()}
                                       onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,totalAmount:Number(e.target.value)} : x) }))}
-                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
-                                    <span className="text-xs text-gray-400">₪</span>
+                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-xs bg-transparent w-16" />
+                                    <span className="text-[10px] text-gray-400">₪</span>
                                   </div>
                                 </td>
-                                <td className="px-3 py-3">
-                                  <select value={exp.paymentMethod||''}
-                                    onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,paymentMethod:e.target.value} : x) }))}
-                                    className="border border-gray-200 rounded-lg px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400">
-                                    <option value="">בחר</option>
-                                    <option value="הוראת קבע">הוראת קבע</option>
-                                    <option value="העברה בנקאית">העברה בנקאית</option>
-                                    <option value="כרטיס אשראי">כרטיס אשראי</option>
-                                    <option value="מזומן">מזומן</option>
-                                  </select>
+                                <td className="px-2 py-2">
+                                  <div className="flex gap-0.5">
+                                    {[
+                                      { value: 'הוראת קבע', Icon: RefreshCw },
+                                      { value: 'העברה בנקאית', Icon: ArrowRightLeft },
+                                      { value: 'כרטיס אשראי', Icon: CreditCard },
+                                      { value: 'מזומן', Icon: Banknote },
+                                    ].map(({ value, Icon }) => (
+                                      <button key={value} title={value}
+                                        onClick={() => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x, paymentMethod: x.paymentMethod===value ? '' : value} : x) }))}
+                                        className={`p-1 rounded-lg transition ${exp.paymentMethod===value ? 'bg-teal-600 text-white' : 'text-gray-300 hover:bg-gray-100 hover:text-gray-500'}`}>
+                                        <Icon size={13} />
+                                      </button>
+                                    ))}
+                                  </div>
                                 </td>
-                                <td className="px-3 py-3">
+                                <td className="px-2 py-2">
                                   <input type="date"
                                     value={exp.paymentGreg || hebDateToGregStr(exp.paymentDay, exp.paymentMonth, exp.paymentYear)}
                                     onChange={e => { const g=e.target.value; if (!g) return; const [yy,mm,dd]=g.split('-').map(Number); const h=gregorianToHebrewDate(new Date(yy,mm-1,dd)); setSettings(s=>({...s,[key]:s[key].map(x=>x.id===exp.id?{...x,paymentGreg:g,paymentDay:h.day,paymentMonth:h.month,paymentYear:h.year}:x)})); }}
-                                    className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400" />
+                                    className="border border-gray-200 rounded px-1 py-0.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-teal-400 w-28" />
                                 </td>
-                                <td className="px-3 py-3">
+                                <td className="px-2 py-2">
                                   <input value={exp.note||''} onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,note:e.target.value} : x) }))}
-                                    placeholder="הערות" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full text-gray-500" />
+                                    placeholder="הערות" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-xs bg-transparent w-full text-gray-500" />
                                 </td>
                                 <td className="px-3 py-3 text-left">
                                   <button onClick={() => setSettings(s => ({ ...s, [key]: s[key].filter(x => x.id !== exp.id) }))}
