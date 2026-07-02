@@ -242,6 +242,19 @@ function hebDateToGregStr(day, month, year) {
   return `${g.getFullYear()}-${String(g.getMonth()+1).padStart(2,'0')}-${String(g.getDate()).padStart(2,'0')}`;
 }
 
+function compareExpenseDateDesc(a, b) {
+  const ay = HEBREW_YEAR_TO_NUMERIC[a.hebrewYear] || 0;
+  const by = HEBREW_YEAR_TO_NUMERIC[b.hebrewYear] || 0;
+  if (ay !== by) return by - ay;
+  const am = TWELVE_MONTHS.indexOf(a.hebrewMonth);
+  const bm = TWELVE_MONTHS.indexOf(b.hebrewMonth);
+  if (am !== bm) return bm - am;
+  const ad = HEB_DAYS.indexOf(a.hebrewDay);
+  const bd = HEB_DAYS.indexOf(b.hebrewDay);
+  if (ad !== bd) return bd - ad;
+  return (b.id || 0) - (a.id || 0);
+}
+
 function gregorianToHebrewMonth(gregDate) {
   const diff = Math.round((gregDate.getTime() - _REF_GREG.getTime()) / 86400000);
   const targetElapsed = _REF_ELAPSED + diff;
@@ -1914,8 +1927,8 @@ export default function App() {
                             ))}
                           </tbody>
                         </table>
-                      : <div className="divide-y">
-                          {settings[key].map(exp => {
+                      : <div className="p-3 space-y-2">
+                          {[...settings[key]].sort(compareExpenseDateDesc).map(exp => {
                             const linkedCharges = key === 'extraordinaryExpenses'
                               ? tenants.flatMap(t => (t.charges||[]).filter(c => c.expenseId === exp.id))
                               : [];
@@ -1927,12 +1940,12 @@ export default function App() {
                             const isPartlyPaid = paidAmount > 0 && !isFullyPaid;
                             const cardColor = isFullyPaid ? 'bg-green-50/40 hover:bg-green-50/70' : isPartlyPaid ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'hover:bg-gray-50/50';
                             return (
-                              <div key={exp.id} className={`group px-4 py-3 transition ${cardColor}`}>
+                              <div key={exp.id} className={`group px-4 py-3 border border-gray-200 rounded-xl transition ${cardColor}`}>
                                 <div className="flex items-center gap-4 flex-wrap">
                                   <input value={exp.description||''}
                                     onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,description:e.target.value} : x) }))}
                                     placeholder="תיאור ההוצאה"
-                                    className="flex-1 min-w-[140px] border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm font-medium bg-transparent" />
+                                    className="flex-1 min-w-[140px] border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm font-medium text-gray-900 bg-transparent" />
 
                                   <HebrewDatePicker day={exp.hebrewDay||''} month={exp.hebrewMonth||''} year={exp.hebrewYear||''}
                                     onChange={(d,m,y) => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,hebrewDay:d,hebrewMonth:m,hebrewYear:y} : x) }))} />
@@ -1941,7 +1954,7 @@ export default function App() {
                                     <span className="text-[10px] text-gray-400 whitespace-nowrap">סה"כ</span>
                                     <input type="number" value={exp.totalAmount||0} onFocus={e => e.target.select()}
                                       onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,totalAmount:Number(e.target.value)} : x) }))}
-                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-16" />
+                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm text-gray-900 font-medium bg-transparent w-16" />
                                     <span className="text-xs text-gray-400">₪</span>
                                   </div>
 
@@ -1949,7 +1962,7 @@ export default function App() {
                                     <span className="text-[10px] text-gray-400 whitespace-nowrap">חלק לדייר</span>
                                     <input type="number" value={exp.perTenantAmount||0} onFocus={e => e.target.select()}
                                       onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,perTenantAmount:Number(e.target.value)} : x) }))}
-                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-16" />
+                                      className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm text-gray-900 font-medium bg-transparent w-16" />
                                     <span className="text-xs text-gray-400">₪</span>
                                   </div>
 
@@ -2005,7 +2018,7 @@ export default function App() {
 
                                 <div className="mt-2">
                                   <input value={exp.note||''} onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,note:e.target.value} : x) }))}
-                                    placeholder="הערה..." className="w-full border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-xs bg-transparent text-gray-500" />
+                                    placeholder="הערה..." className="w-full border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-xs bg-transparent text-gray-800" />
                                 </div>
                               </div>
                             );
