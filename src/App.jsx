@@ -869,15 +869,13 @@ export default function App() {
       @media print { body { padding: 15px; } }
     </style></head><body>
     <div class="header">
-      ${logo ? `<img src="${logo}" class="logo" />` : ''}
       <div>
         <div class="building">${settings.buildingName || 'ועד הבית'}</div>
         <div class="meta">${settings.address || ''}</div>
-      </div>
-      <div style="text-align:left">
-        <div style="font-size:15px;font-weight:bold">דוח הוצאות</div>
+        <div style="font-size:15px;font-weight:bold;margin-top:6px">דוח הוצאות</div>
         <div class="meta">הופק: ${dateStr}</div>
       </div>
+      ${logo ? `<img src="${logo}" class="logo" />` : ''}
     </div>
 
     <h3>⚡ חשמל</h3>
