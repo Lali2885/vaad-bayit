@@ -695,11 +695,7 @@ export default function App() {
     return true;
   }
 
-  function printTenantStatement(tenant, years, mode = 'full') {
-    const debtsOnly = mode === 'debtsOnly';
-    const { month: curMonth, year: curYear } = getCurrentHebrewDate();
-    const logoSrc = settings.logo;
-
+  function getTenantStatementData(tenant, years) {
     const expenseYearMap = new Map((settings.extraordinaryExpenses || []).map(e => [e.id, e.hebrewYear]));
 
     const sortedYears = [...years].sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[a] || 0) - (HEBREW_YEAR_TO_NUMERIC[b] || 0));
@@ -725,6 +721,51 @@ export default function App() {
 
     const totalPaid = yearsData.reduce((s, y) => s + y.yearPaidTotal, 0);
     const totalDebtAmt = yearsData.reduce((s, y) => s + y.yearDebtTotal, 0);
+
+    return { yearsData, totalPaid, totalDebtAmt };
+  }
+
+  function buildTenantStatementText(tenant, mode = 'full') {
+    const debtsOnly = mode === 'debtsOnly';
+    const years = new Set(tenant.payments.map(p => p.hebrewYear));
+    const { yearsData, totalPaid, totalDebtAmt } = getTenantStatementData(tenant, years);
+
+    const lines = [debtsOnly ? 'פירוט חובות:' : 'פירוט תשלומים וחובות:', ''];
+
+    yearsData.forEach(({ year, paidPayments, debtPayments, debtCharges, yearPaidTotal, yearDebtTotal }) => {
+      lines.push(`שנת ${year}:`);
+      if (!debtsOnly) {
+        if (paidPayments.length > 0) {
+          lines.push('  תשלומים ששולמו:');
+          paidPayments.forEach(p => lines.push(`    ${p.hebrewMonth}: ₪${(p.paidAmount || p.amount).toLocaleString()}${p.note ? ' — ' + p.note : ''}`));
+        } else {
+          lines.push('  אין תשלומים רשומים');
+        }
+        lines.push(`  סה"כ שולם: ₪${yearPaidTotal.toLocaleString()}`);
+      }
+      if (debtPayments.length > 0 || debtCharges.length > 0) {
+        lines.push('  חובות פתוחים:');
+        debtPayments.forEach(p => lines.push(`    ועד בית — ${p.hebrewMonth}: ₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}${p.note ? ' — ' + p.note : ''}`));
+        debtCharges.forEach(c => lines.push(`    ${c.description || 'הוצאה חריגה'}: ₪${c.amount.toLocaleString()}${c.note ? ' — ' + c.note : ''}`));
+        lines.push(`  סה"כ חוב לשנת ${year}: ₪${yearDebtTotal.toLocaleString()}`);
+      } else {
+        lines.push('  ✓ אין חובות פתוחים');
+      }
+      lines.push('');
+    });
+
+    if (!debtsOnly) lines.push(`סה"כ שולם (כולל): ₪${totalPaid.toLocaleString()}`);
+    lines.push(`יתרת חוב לתשלום: ₪${totalDebtAmt.toLocaleString()}`);
+
+    return lines.join('\n');
+  }
+
+  function printTenantStatement(tenant, years, mode = 'full') {
+    const debtsOnly = mode === 'debtsOnly';
+    const { month: curMonth, year: curYear } = getCurrentHebrewDate();
+    const logoSrc = settings.logo;
+
+    const { yearsData, totalPaid, totalDebtAmt } = getTenantStatementData(tenant, years);
 
     const html = `<!DOCTYPE html>
 <html dir="rtl" lang="he">
@@ -2210,6 +2251,18 @@ export default function App() {
               <label className="text-[10px] text-gray-400 block mb-1">נושא</label>
               <input value={tenantMsgSubject} onChange={e => setTenantMsgSubject(e.target.value)} placeholder="נושא ההודעה"
                 className="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-teal-400" dir="rtl" />
+            </div>
+            <div className="flex items-center gap-2 mb-2">
+              <button type="button"
+                onClick={() => setTenantMsgText(t => (t.trim() ? t.trim() + '\n\n' : '') + buildTenantStatementText(selectedTenant, 'full'))}
+                className="text-xs border border-gray-200 rounded-full px-3 py-1.5 text-gray-600 hover:border-teal-400 hover:text-teal-700 transition flex items-center gap-1">
+                <FileText size={12} /> הוסף פירוט מלא
+              </button>
+              <button type="button"
+                onClick={() => setTenantMsgText(t => (t.trim() ? t.trim() + '\n\n' : '') + buildTenantStatementText(selectedTenant, 'debtsOnly'))}
+                className="text-xs border border-gray-200 rounded-full px-3 py-1.5 text-gray-600 hover:border-teal-400 hover:text-teal-700 transition flex items-center gap-1">
+                <FileText size={12} /> הוסף פירוט חובות
+              </button>
             </div>
             <textarea value={tenantMsgText} onChange={e => setTenantMsgText(e.target.value)}
               placeholder="כתוב את ההודעה כאן..."
