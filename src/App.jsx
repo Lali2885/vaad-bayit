@@ -914,23 +914,40 @@ export default function App() {
     };
     const fmtHeb = (d, m, y) => `${d || ''} ${m || ''} ${y || ''}`.trim();
 
-    const elecRows = (settings.electricityExpenses || []).map(e => `
+    const elecRows = (settings.electricityExpenses || []).map(e => {
+      const paid = e.paymentMethod ? (e.totalAmount || 0) : 0;
+      const remaining = e.paymentMethod ? 0 : (e.totalAmount || 0);
+      return `
       <tr class="${e.paymentMethod ? 'paid' : 'unpaid'}">
         <td>${elecDate(e.fromGreg, e.fromDay, e.fromMonth, e.fromYear)}</td>
         <td>${elecDate(e.toGreg, e.toDay, e.toMonth, e.toYear)}</td>
         <td>₪${(e.totalAmount || 0).toLocaleString()}</td>
+        <td>₪${paid.toLocaleString()}</td>
+        <td>${remaining > 0 ? `<span style="color:#dc2626;font-weight:bold">₪${remaining.toLocaleString()}</span>` : '—'}</td>
         <td>${e.paymentMethod || '—'}</td>
         <td>${elecDate(e.paymentGreg, e.paymentDay, e.paymentMonth, e.paymentYear) || '—'}</td>
         <td>${e.note || ''}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
 
-    const makeOtherRows = key => (settings[key] || []).map(e => `
-      <tr>
+    const makeOtherRows = key => (settings[key] || []).map(e => {
+      const linkedCharges = key === 'extraordinaryExpenses'
+        ? (tenants || []).flatMap(t => (t.charges || []).filter(c => c.expenseId === e.id))
+        : [];
+      const isPulled = linkedCharges.length > 0;
+      const autoPaid = linkedCharges.filter(c => c.status === 'שולם').reduce((s, c) => s + c.amount, 0);
+      const paid = isPulled ? autoPaid : (e.paidAmount || 0);
+      const remaining = Math.max(0, (e.totalAmount || 0) - paid);
+      return `
+      <tr class="${remaining <= 0 && (e.totalAmount || 0) > 0 ? 'paid' : 'unpaid'}">
         <td>${e.description || ''}</td>
         <td>${fmtHeb(e.hebrewDay, e.hebrewMonth, e.hebrewYear)}</td>
         <td>₪${(e.totalAmount || 0).toLocaleString()}</td>
+        <td>₪${paid.toLocaleString()}</td>
+        <td>${remaining > 0 ? `<span style="color:#dc2626;font-weight:bold">₪${remaining.toLocaleString()}</span>` : '—'}</td>
         <td>${e.note || ''}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
 
     const html = `<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="UTF-8">
     <title>דוח הוצאות</title>
@@ -960,20 +977,20 @@ export default function App() {
     </div>
 
     <h3>⚡ חשמל</h3>
-    <table><thead><tr><th>תקופה מ-</th><th>עד</th><th>סכום</th><th>אופן תשלום</th><th>תאריך תשלום</th><th>הערות</th></tr></thead>
-    <tbody>${elecRows || '<tr><td colspan="6" style="text-align:center;color:#aaa">אין נתונים</td></tr>'}</tbody></table>
+    <table><thead><tr><th>תקופה מ-</th><th>עד</th><th>סכום</th><th>שולם</th><th>יתרה</th><th>אופן תשלום</th><th>תאריך תשלום</th><th>הערות</th></tr></thead>
+    <tbody>${elecRows || '<tr><td colspan="8" style="text-align:center;color:#aaa">אין נתונים</td></tr>'}</tbody></table>
 
     <h3>🧹 ניקיון</h3>
-    <table><thead><tr><th>תיאור</th><th>תאריך</th><th>סכום</th><th>הערה</th></tr></thead>
-    <tbody>${makeOtherRows('cleaningExpenses') || '<tr><td colspan="4" style="text-align:center;color:#aaa">אין נתונים</td></tr>'}</tbody></table>
+    <table><thead><tr><th>תיאור</th><th>תאריך</th><th>סכום</th><th>שולם</th><th>יתרה</th><th>הערה</th></tr></thead>
+    <tbody>${makeOtherRows('cleaningExpenses') || '<tr><td colspan="6" style="text-align:center;color:#aaa">אין נתונים</td></tr>'}</tbody></table>
 
     <h3>📋 הוצאות שוטפות</h3>
-    <table><thead><tr><th>תיאור</th><th>תאריך</th><th>סכום</th><th>הערה</th></tr></thead>
-    <tbody>${makeOtherRows('regularExpenses') || '<tr><td colspan="4" style="text-align:center;color:#aaa">אין נתונים</td></tr>'}</tbody></table>
+    <table><thead><tr><th>תיאור</th><th>תאריך</th><th>סכום</th><th>שולם</th><th>יתרה</th><th>הערה</th></tr></thead>
+    <tbody>${makeOtherRows('regularExpenses') || '<tr><td colspan="6" style="text-align:center;color:#aaa">אין נתונים</td></tr>'}</tbody></table>
 
     <h3>⚠️ הוצאות חריגות</h3>
-    <table><thead><tr><th>תיאור</th><th>תאריך</th><th>סכום</th><th>הערה</th></tr></thead>
-    <tbody>${makeOtherRows('extraordinaryExpenses') || '<tr><td colspan="4" style="text-align:center;color:#aaa">אין נתונים</td></tr>'}</tbody></table>
+    <table><thead><tr><th>תיאור</th><th>תאריך</th><th>סכום</th><th>שולם</th><th>יתרה</th><th>הערה</th></tr></thead>
+    <tbody>${makeOtherRows('extraordinaryExpenses') || '<tr><td colspan="6" style="text-align:center;color:#aaa">אין נתונים</td></tr>'}</tbody></table>
 
     <div class="footer">${settings.buildingName || ''} | הופק ב-${dateStr}</div>
     <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 600); }<\/script>
