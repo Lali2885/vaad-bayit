@@ -21,6 +21,7 @@ const INITIAL_SETTINGS = {
   regularExpenses: [],
   extraordinaryExpenses: [],
   cashOverride: null,
+  expensesResetAt: 0,
   emailSettings: {
     senderName: 'ועד הבית',
     senderEmail: '',
@@ -1326,14 +1327,15 @@ export default function App() {
 
           const balance = totalIncome - totalExpensesAll;
 
+          const expensesResetAt = settings.expensesResetAt || 0;
           const thisMonthElec = (settings.electricityExpenses || [])
-            .filter(e => e.paymentMonth === curMonth && e.paymentYear === curYear)
+            .filter(e => e.id > expensesResetAt)
             .reduce((sum, e) => sum + (e.totalAmount || 0), 0);
           const thisMonthOther = [
             ...(settings.cleaningExpenses || []),
             ...(settings.regularExpenses || []),
             ...(settings.extraordinaryExpenses || []),
-          ].filter(e => e.hebrewMonth === curMonth && e.hebrewYear === curYear)
+          ].filter(e => e.id > expensesResetAt)
            .reduce((sum, e) => sum + (e.totalAmount || 0), 0);
           const thisMonthTotal = thisMonthElec + thisMonthOther;
 
@@ -1422,11 +1424,17 @@ export default function App() {
                 })()}
 
                 <div className="bg-white rounded-2xl border border-orange-100 shadow-sm p-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-orange-100">
-                      <TrendingDown size={18} className="text-orange-500" />
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-orange-100">
+                        <TrendingDown size={18} className="text-orange-500" />
+                      </div>
+                      <span className="text-sm font-medium text-gray-500">הוצאות החודש</span>
                     </div>
-                    <span className="text-sm font-medium text-gray-500">הוצאות החודש</span>
+                    <button onClick={() => { if (confirm('לאפס את הוצאות החודש? החל מעכשיו רק הוצאות חדשות שיתווספו יספרו.')) setSettings(s => ({ ...s, expensesResetAt: Date.now() })); }}
+                      className="text-gray-300 hover:text-orange-500 transition" title="איפוס הוצאות החודש">
+                      <RefreshCw size={14} />
+                    </button>
                   </div>
                   <p className="text-3xl font-bold text-orange-600 mb-3">₪{thisMonthTotal.toLocaleString()}</p>
                   <div className="text-xs text-gray-400 space-y-1">
