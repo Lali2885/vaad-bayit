@@ -985,6 +985,78 @@ export default function App() {
     w.document.close();
   }
 
+  function printTenantsStatusReport() {
+    const today = new Date();
+    const dateStr = today.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const logo = settings.logo || '';
+
+    const sorted = [...(tenants || [])].sort((a, b) => Number(a.apt) - Number(b.apt));
+    const rows = sorted.map(t => {
+      const debt = calcDebt(t);
+      const credit = calcCredit(t);
+      const statusHtml = debt > 0
+        ? `<span style="color:#dc2626;font-weight:bold">₪${debt.toLocaleString()} חוב</span>`
+        : credit > 0
+        ? `<span style="color:#16a34a;font-weight:bold">₪${credit.toLocaleString()} זכות</span>`
+        : `<span style="color:#0d9488;font-weight:bold">מעודכן ✓</span>`;
+      return `
+      <tr class="${debt > 0 ? 'unpaid' : 'paid'}">
+        <td>${t.apt}</td>
+        <td>${t.name || ''}</td>
+        <td>${t.owner || ''}</td>
+        <td>${t.phone || ''}</td>
+        <td>₪${(Number(t.monthlyRent) || 0).toLocaleString()}${t.feePercent && Number(t.feePercent) !== 100 ? ` (${t.feePercent}%)` : ''}</td>
+        <td>${statusHtml}</td>
+      </tr>`;
+    }).join('');
+
+    const totalDebtSum = sorted.reduce((s, t) => s + calcDebt(t), 0);
+    const totalCreditSum = sorted.reduce((s, t) => s + calcCredit(t), 0);
+
+    const html = `<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="UTF-8">
+    <title>דוח מצב דיירים</title>
+    <style>
+      body { font-family: Arial, sans-serif; direction: rtl; padding: 30px; color: #222; font-size: 13px; }
+      .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 2px solid #0f766e; padding-bottom: 16px; }
+      .logo { max-height: 150px; max-width: 300px; object-fit: contain; }
+      .building { font-size: 18px; font-weight: bold; color: #0f766e; }
+      .meta { font-size: 12px; color: #666; margin-top: 4px; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+      th { background: #f0fdfa; color: #0f766e; padding: 7px 10px; text-align: right; font-size: 12px; border: 1px solid #e2e8f0; }
+      td { padding: 6px 10px; border: 1px solid #e2e8f0; font-size: 12px; }
+      tr.paid td { background: #f0fdf4; }
+      tr.unpaid td { background: #fff5f5; }
+      tfoot td { font-weight: bold; background: #f8fafc; }
+      .footer { margin-top: 32px; font-size: 11px; color: #aaa; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }
+      @media print { body { padding: 15px; } }
+    </style></head><body>
+    <div class="header">
+      <div>
+        <div class="building">${settings.buildingName || 'ועד הבית'}</div>
+        <div class="meta">${settings.address || ''}</div>
+        <div style="font-size:15px;font-weight:bold;margin-top:6px">דוח מצב דיירים</div>
+        <div class="meta">הופק: ${dateStr}</div>
+      </div>
+      ${logo ? `<img src="${logo}" class="logo" />` : ''}
+    </div>
+
+    <table><thead><tr><th>דירה</th><th>שם</th><th>בעל הדירה</th><th>טלפון</th><th>שכ"ד חודשי</th><th>מצב</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:#aaa">אין דיירים</td></tr>'}</tbody>
+    <tfoot><tr>
+      <td colspan="5">סה"כ</td>
+      <td>${totalDebtSum > 0 ? `<span style="color:#dc2626">₪${totalDebtSum.toLocaleString()} חוב</span>` : ''}${totalCreditSum > 0 ? `<span style="color:#16a34a"> ₪${totalCreditSum.toLocaleString()} זכות</span>` : ''}${totalDebtSum === 0 && totalCreditSum === 0 ? '—' : ''}</td>
+    </tr></tfoot></table>
+
+    <div class="footer">${settings.buildingName || ''} | הופק ב-${dateStr}</div>
+    <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 600); }<\/script>
+    </body></html>`;
+
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+  }
+
   function openSettings() {
     setSettingsData({ ...settings });
     setView('settings');
@@ -1372,6 +1444,9 @@ export default function App() {
                 </button>
                 <button onClick={() => setShowEmailModal(true)} className="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-1 transition">
                   <Mail size={15} /> שלח לכולם
+                </button>
+                <button onClick={printTenantsStatusReport} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 hover:border-teal-400 hover:text-teal-700 px-4 py-2 rounded-full text-sm font-medium shadow-sm transition">
+                  <FileDown size={15} /> הורד דוח מצב
                 </button>
               </div>
             </header>
