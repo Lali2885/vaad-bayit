@@ -1479,6 +1479,9 @@ export default function App() {
                               {t.apt}
                             </div>
                             <p className="font-bold text-sm text-gray-800 leading-tight truncate">{t.name}</p>
+                            {isRental && t.owner && (
+                              <p className="text-[11px] text-amber-700 leading-tight truncate">בעל הדירה: {t.owner}</p>
+                            )}
                             {t.feePercent && Number(t.feePercent) !== 100 && (
                               <span className="text-[10px] text-amber-600 font-medium bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full mt-1 inline-block">{t.feePercent}%</span>
                             )}
