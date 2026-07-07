@@ -20,6 +20,7 @@ const INITIAL_SETTINGS = {
   cleaningExpenses: [],
   regularExpenses: [],
   extraordinaryExpenses: [],
+  cashOverride: null,
   emailSettings: {
     senderName: 'ועד הבית',
     senderEmail: '',
@@ -505,6 +506,8 @@ export default function App() {
   const [filterYear, setFilterYear] = useState(CURRENT_HEBREW_YEAR);
   const [showTenantMsg, setShowTenantMsg] = useState(false);
   const [tenantMsgText, setTenantMsgText] = useState('');
+  const [editingCash, setEditingCash] = useState(false);
+  const [cashInput, setCashInput] = useState('');
   const logoInputRef = useRef(null);
   const dataLoadedForUser = useRef(null);
   const skipTenantsSaveRef = useRef(false);
@@ -1340,12 +1343,21 @@ export default function App() {
           }).length;
           const debtorsCount = tenants.filter(t => calcDebt(t) > 0).length;
 
-          const pendingCharges = tenants.reduce((sum, t) =>
-            sum + (t.charges || []).filter(c => c.status === 'חוב').reduce((s, c) => s + c.amount, 0), 0
-          );
-          const unappliedCount = (settings.extraordinaryExpenses || []).filter(
-            exp => !tenants.every(t => (t.charges||[]).some(c => c.expenseId === exp.id))
-          ).length;
+          const calcExpenseRemaining = (e, key) => {
+            if (key === 'electricityExpenses') return e.paymentMethod ? 0 : (e.totalAmount || 0);
+            const linkedCharges = key === 'extraordinaryExpenses'
+              ? tenants.flatMap(t => (t.charges || []).filter(c => c.expenseId === e.id))
+              : [];
+            const isPulled = linkedCharges.length > 0;
+            const autoPaid = linkedCharges.filter(c => c.status === 'שולם').reduce((s, c) => s + c.amount, 0);
+            const paid = isPulled ? autoPaid : (e.paidAmount || 0);
+            return Math.max(0, (e.totalAmount || 0) - paid);
+          };
+          const openElec = (settings.electricityExpenses || []).reduce((s, e) => s + calcExpenseRemaining(e, 'electricityExpenses'), 0);
+          const openCleaning = (settings.cleaningExpenses || []).reduce((s, e) => s + calcExpenseRemaining(e, 'cleaningExpenses'), 0);
+          const openRegular = (settings.regularExpenses || []).reduce((s, e) => s + calcExpenseRemaining(e, 'regularExpenses'), 0);
+          const openExtraordinary = (settings.extraordinaryExpenses || []).reduce((s, e) => s + calcExpenseRemaining(e, 'extraordinaryExpenses'), 0);
+          const totalOpenExpenses = openElec + openCleaning + openRegular + openExtraordinary;
 
           return (
             <>
@@ -1359,21 +1371,55 @@ export default function App() {
               </header>
               <div className="grid grid-cols-2 gap-5 max-w-2xl">
 
-                <div className={`bg-white rounded-2xl border shadow-sm p-5 ${balance >= 0 ? 'border-teal-100' : 'border-red-100'}`}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${balance >= 0 ? 'bg-teal-100' : 'bg-red-100'}`}>
-                      <Wallet size={18} className={balance >= 0 ? 'text-teal-600' : 'text-red-500'} />
+                {(() => {
+                  const displayBalance = settings.cashOverride != null ? settings.cashOverride : balance;
+                  return (
+                <div className={`bg-white rounded-2xl border shadow-sm p-5 ${displayBalance >= 0 ? 'border-teal-100' : 'border-red-100'}`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${displayBalance >= 0 ? 'bg-teal-100' : 'bg-red-100'}`}>
+                        <Wallet size={18} className={displayBalance >= 0 ? 'text-teal-600' : 'text-red-500'} />
+                      </div>
+                      <span className="text-sm font-medium text-gray-500">כסף בקופה</span>
                     </div>
-                    <span className="text-sm font-medium text-gray-500">כסף בקופה</span>
+                    {!editingCash && (
+                      <button onClick={() => { setCashInput(String(displayBalance)); setEditingCash(true); }}
+                        className="text-gray-300 hover:text-teal-600 transition" title="עדכון ידני">
+                        <Pencil size={14} />
+                      </button>
+                    )}
                   </div>
-                  <p className={`text-3xl font-bold mb-3 ${balance >= 0 ? 'text-teal-700' : 'text-red-500'}`}>
-                    ₪{balance.toLocaleString()}
-                  </p>
+                  {editingCash ? (
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2">
+                        <input type="number" value={cashInput} onChange={e => setCashInput(e.target.value)} autoFocus
+                          className="w-32 border border-gray-200 rounded-lg px-2 py-1 text-lg font-bold focus:outline-none focus:ring-2 focus:ring-teal-400" />
+                        <span className="text-lg font-bold text-gray-400">₪</span>
+                      </div>
+                      <div className="flex items-center gap-3 mt-2 text-xs">
+                        <button onClick={() => { setSettings(s => ({ ...s, cashOverride: Number(cashInput) || 0 })); setEditingCash(false); }}
+                          className="text-teal-600 font-bold hover:underline">שמור</button>
+                        <button onClick={() => setEditingCash(false)} className="text-gray-400 hover:underline">ביטול</button>
+                        {settings.cashOverride != null && (
+                          <button onClick={() => { setSettings(s => ({ ...s, cashOverride: null })); setEditingCash(false); }}
+                            className="text-amber-500 hover:underline">חשב אוטומטית</button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className={`text-3xl font-bold mb-3 ${displayBalance >= 0 ? 'text-teal-700' : 'text-red-500'}`}>
+                      ₪{displayBalance.toLocaleString()}
+                      {settings.cashOverride != null && <span className="text-xs font-normal text-gray-400 mr-2">(עודכן ידנית)</span>}
+                    </p>
+                  )}
                   <div className="text-xs text-gray-400 space-y-1">
                     <div className="flex justify-between"><span>הכנסות</span><span className="text-green-600 font-semibold">₪{totalIncome.toLocaleString()}</span></div>
                     <div className="flex justify-between"><span>הוצאות</span><span className="text-red-400 font-semibold">₪{totalExpensesAll.toLocaleString()}</span></div>
+                    {settings.cashOverride != null && <div className="flex justify-between"><span>לפי חישוב אוטומטי</span><span className="font-semibold text-gray-400">₪{balance.toLocaleString()}</span></div>}
                   </div>
                 </div>
+                  );
+                })()}
 
                 <div className="bg-white rounded-2xl border border-orange-100 shadow-sm p-5">
                   <div className="flex items-center gap-2 mb-3">
@@ -1412,11 +1458,13 @@ export default function App() {
                     </div>
                     <span className="text-sm font-medium text-gray-500">הוצאות צפויות</span>
                   </div>
-                  <p className="text-3xl font-bold text-purple-600 mb-3">₪{pendingCharges.toLocaleString()}</p>
+                  <p className="text-3xl font-bold text-purple-600 mb-3">₪{totalOpenExpenses.toLocaleString()}</p>
                   <div className="text-xs text-gray-400 space-y-1">
-                    <div className="flex justify-between"><span>חיובים חריגים פתוחים</span><span className="font-semibold">₪{pendingCharges.toLocaleString()}</span></div>
-                    {unappliedCount > 0 && <div className="flex justify-between"><span>הוצאות שלא שולפו</span><span className="font-semibold text-amber-500">{unappliedCount}</span></div>}
-                    {pendingCharges === 0 && unappliedCount === 0 && <span className="text-gray-300">אין חיובים פתוחים</span>}
+                    {openElec > 0 && <div className="flex justify-between"><span>חשמל</span><span className="font-semibold">₪{openElec.toLocaleString()}</span></div>}
+                    {openCleaning > 0 && <div className="flex justify-between"><span>ניקיון</span><span className="font-semibold">₪{openCleaning.toLocaleString()}</span></div>}
+                    {openRegular > 0 && <div className="flex justify-between"><span>הוצאות שוטפות</span><span className="font-semibold">₪{openRegular.toLocaleString()}</span></div>}
+                    {openExtraordinary > 0 && <div className="flex justify-between"><span>הוצאות חריגות</span><span className="font-semibold">₪{openExtraordinary.toLocaleString()}</span></div>}
+                    {totalOpenExpenses === 0 && <span className="text-gray-300">אין הוצאות פתוחות</span>}
                   </div>
                 </div>
 
