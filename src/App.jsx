@@ -74,6 +74,14 @@ const HEBREW_YEAR_TO_NUMERIC = (() => {
   return Object.fromEntries(years.map(n => [numericToHebrewYear(n), n]));
 })();
 
+function isFutureMonth(month, year) {
+  const { month: curMonth, year: curYear } = getCurrentHebrewDate();
+  const yearNum = HEBREW_YEAR_TO_NUMERIC[year];
+  const curYearNum = HEBREW_YEAR_TO_NUMERIC[curYear];
+  if (yearNum !== curYearNum) return yearNum > curYearNum;
+  return TWELVE_MONTHS.indexOf(month) > TWELVE_MONTHS.indexOf(curMonth);
+}
+
 function _hebElapsed(year) {
   const m = Math.floor((235 * year - 234) / 19);
   const parts = 12084 + 13753 * m;
@@ -1179,15 +1187,13 @@ export default function App() {
   }
 
   function updatePaymentPaid(pId, paidAmount) {
-    const { month: curMonth, year: curYear } = getCurrentHebrewDate();
-    const curIdx = TWELVE_MONTHS.indexOf(curMonth);
     setTenants(prev => prev.map(t => {
       if (t.id !== selectedId) return t;
       return { ...t, payments: t.payments.map(p => {
         if (p.id !== pId) return p;
         const paid = Math.max(Number(paidAmount) || 0, 0);
         const capped = Math.min(paid, p.amount);
-        const isFuture = p.hebrewYear === curYear && TWELVE_MONTHS.indexOf(p.hebrewMonth) > curIdx;
+        const isFuture = isFutureMonth(p.hebrewMonth, p.hebrewYear);
         if (isFuture) return { ...p, paidAmount: capped, status: capped > 0 ? 'זכות' : 'חוב' };
         return { ...p, paidAmount: capped, status: capped >= p.amount ? 'שולם' : 'חוב' };
       })};
@@ -1211,8 +1217,7 @@ export default function App() {
     const tenant = tenants.find(t => t.id === selectedId);
     const baseAmount = getFeeForMonth(month, year);
     const amount = Math.round(baseAmount * (Number(tenant?.feePercent || 100) / 100));
-    const { month: curMonth, year: curYear } = getCurrentHebrewDate();
-    const isFuture = year === curYear && TWELVE_MONTHS.indexOf(month) > TWELVE_MONTHS.indexOf(curMonth);
+    const isFuture = isFutureMonth(month, year);
     const status = isFuture ? 'זכות' : 'חוב';
     const newP = { id: Date.now(), hebrewMonth: month, hebrewYear: year, status, amount, paidAmount: isFuture ? amount : 0 };
     setTenants(prev => prev.map(t => t.id === selectedId ? { ...t, payments: [...t.payments, newP] } : t));
