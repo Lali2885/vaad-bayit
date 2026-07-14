@@ -1373,7 +1373,7 @@ export default function App() {
           <button onClick={() => setDbError(null)} className="hover:opacity-70"><X size={16} /></button>
         </div>
       )}
-      <div className="w-28 shrink-0 flex flex-col items-center py-8 gap-6 text-white"
+      <div className="hidden md:flex w-28 shrink-0 flex-col items-center py-8 gap-6 text-white"
         style={{background: 'linear-gradient(160deg, #0f766e 0%, #0284c7 60%, #0c4a6e 100%)'}}>
         {settings.logo
           ? <img src={settings.logo} alt="לוגו" className="w-24 h-24 object-contain rounded-full bg-white/20 p-1 shadow" />
@@ -1400,7 +1400,26 @@ export default function App() {
         </div>
       </div>
 
-      <main className="flex-1 p-6 overflow-auto bg-sky-50">
+      <div className="md:hidden fixed bottom-0 inset-x-0 z-40 flex items-center justify-around text-white shadow-lg"
+        style={{background: 'linear-gradient(160deg, #0f766e 0%, #0284c7 60%, #0c4a6e 100%)', paddingBottom: 'env(safe-area-inset-bottom)'}}>
+        <button onClick={() => setView('dashboard')} className={`flex flex-col items-center gap-0.5 flex-1 py-2 transition-all ${view === 'dashboard' ? 'text-white bg-white/15' : 'text-cyan-100'}`}>
+          <LayoutDashboard size={21} /><span className="text-[10px] font-medium">דשבורד</span>
+        </button>
+        <button onClick={goList} className={`flex flex-col items-center gap-0.5 flex-1 py-2 transition-all ${view === 'list' || view === 'tenant' || view === 'add' ? 'text-white bg-white/15' : 'text-cyan-100'}`}>
+          <Home size={21} /><span className="text-[10px] font-medium">דיירים</span>
+        </button>
+        <button onClick={() => setView('expenses')} className={`flex flex-col items-center gap-0.5 flex-1 py-2 transition-all ${view === 'expenses' ? 'text-white bg-white/15' : 'text-cyan-100'}`}>
+          <ReceiptText size={21} /><span className="text-[10px] font-medium">הוצאות</span>
+        </button>
+        <button onClick={openSettings} className={`flex flex-col items-center gap-0.5 flex-1 py-2 transition-all ${view === 'settings' ? 'text-white bg-white/15' : 'text-cyan-100'}`}>
+          <Settings size={21} /><span className="text-[10px] font-medium">הגדרות</span>
+        </button>
+        <button onClick={handleLogout} className="flex flex-col items-center gap-0.5 flex-1 py-2 text-cyan-200">
+          <LogOut size={21} /><span className="text-[10px]">יציאה</span>
+        </button>
+      </div>
+
+      <main className="flex-1 p-4 md:p-6 pb-24 md:pb-6 overflow-auto bg-sky-50">
         {view === 'dashboard' && (() => {
           const { month: curMonth, year: curYear } = getCurrentHebrewDate();
 
@@ -1463,7 +1482,7 @@ export default function App() {
                   {GREG_MONTHS_HE[new Date().getMonth()]} {new Date().getFullYear()}
                 </p>
               </header>
-              <div className="grid grid-cols-2 gap-5 max-w-2xl">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 max-w-2xl">
 
                 {(() => {
                   const displayBalance = settings.cashOverride != null ? settings.cashOverride : balance;
@@ -1615,7 +1634,7 @@ export default function App() {
                 </button>
               </div>
             </header>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
               {[
                 { label: 'קומה 1', apts: ['1','2','3'], rental: false },
                 { label: 'קומה 2', apts: ['4','5','6'], rental: false },
@@ -1625,9 +1644,9 @@ export default function App() {
               ].map(floor => {
                 const floorTenants = tenants.filter(t => floor.apts.includes(t.apt));
                 return (
-                  <div key={floor.label} className={`rounded-2xl border p-4 ${floor.full ? 'col-span-2 border-amber-200 bg-amber-50/30' : 'border-teal-100 bg-white'}`}>
+                  <div key={floor.label} className={`rounded-2xl border p-4 ${floor.full ? 'sm:col-span-2 border-amber-200 bg-amber-50/30' : 'border-teal-100 bg-white'}`}>
                     <h3 className={`text-xs font-bold mb-3 pb-1.5 border-b ${floor.rental ? 'text-amber-600 border-amber-200' : 'text-teal-700 border-teal-100'}`}>{floor.label}</h3>
-                    <div className={`grid gap-3 ${floor.full ? 'grid-cols-5' : 'grid-cols-3'}`}>
+                    <div className={`grid gap-3 ${floor.full ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-3'}`}>
                       {floorTenants.map(t => {
                         const debt = calcDebt(t);
                         const credit = calcCredit(t);
@@ -1677,8 +1696,8 @@ export default function App() {
             <button onClick={goList} className="flex items-center text-teal-800 font-bold mb-5 hover:underline text-sm">
               <ChevronRight size={18} /> חזרה לרשימת הדיירים
             </button>
-            <div className="grid grid-cols-3 gap-5">
-              <div className="col-span-2 space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <div className="md:col-span-2 space-y-5">
                 <div className="bg-white p-5 rounded-2xl border shadow-sm">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="font-bold text-base text-teal-800">פרטי דייר</h3>
@@ -1689,7 +1708,7 @@ export default function App() {
                           <button onClick={() => setEditMode(false)} className="flex items-center gap-1 text-gray-500 hover:text-gray-700 text-sm"><X size={14} /> בטל</button>
                         </div>}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {[{label:'שם מלא',key:'name'},{label:'מספר דירה',key:'apt'},{label:'תעודת זהות',key:'idCard'},{label:'מייל',key:'email'},{label:'טלפון',key:'phone'},{label:'תאריך חיוב',key:'dueDate'},{label:'שכ"ד חודשי (₪)',key:'monthlyRent'}].map(({label,key}) => (
                       <div key={key}>
                         <label className="text-[10px] text-gray-400 block mb-1">{label}</label>
@@ -1728,6 +1747,7 @@ export default function App() {
                       {HEBREW_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                   </div>
+                  <div className="overflow-x-auto">
                   <table className="w-full text-sm text-right">
                     <thead><tr className="border-b text-gray-400 text-xs">
                       <th className="pb-2 font-medium w-20">חודש</th>
@@ -1853,6 +1873,7 @@ export default function App() {
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </div>
 
                 {/* חיובים חד-פעמיים */}
@@ -1868,7 +1889,7 @@ export default function App() {
                   </div>
                   {(selectedTenant.charges || []).filter(c => !c.expenseId).length === 0
                     ? <p className="text-sm text-gray-400 text-center py-4">אין חיובים נוספים</p>
-                    : <table className="w-full text-sm text-right">
+                    : <div className="overflow-x-auto"><table className="w-full text-sm text-right">
                         <thead><tr className="border-b text-gray-400 text-xs">
                           <th className="pb-2 font-medium">תיאור</th>
                           <th className="pb-2 font-medium">הערה</th>
@@ -1907,7 +1928,7 @@ export default function App() {
                             </tr>
                           ))}
                         </tbody>
-                      </table>
+                      </table></div>
                   }
                 </div>
 
@@ -1916,6 +1937,7 @@ export default function App() {
                     <h4 className="font-bold text-base text-teal-800 mb-4">הוצאות חריגות</h4>
 
                     {(selectedTenant.charges || []).filter(c => c.expenseId).length > 0 && (
+                      <div className="overflow-x-auto">
                       <table className="w-full text-sm text-right mb-4">
                         <thead><tr className="border-b text-gray-400 text-xs">
                           <th className="pb-2 font-medium">תיאור</th>
@@ -1942,6 +1964,7 @@ export default function App() {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                     )}
 
                     <div className="space-y-2">
@@ -2073,7 +2096,7 @@ export default function App() {
             </button>
             <div className="bg-white p-6 rounded-2xl border shadow-sm">
               <h3 className="font-bold text-base text-teal-800 mb-5">הוספת דייר חדש</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {[{label:'שם מלא',key:'name'},{label:'מספר דירה',key:'apt'},{label:'תעודת זהות',key:'idCard'},{label:'מייל',key:'email'},{label:'טלפון',key:'phone'},{label:'תאריך חיוב',key:'dueDate'},{label:'שכ"ד חודשי (₪)',key:'monthlyRent'}].map(({label,key}) => (
                   <div key={key}>
                     <label className="text-[10px] text-gray-400 block mb-1">{label}</label>
@@ -2131,7 +2154,7 @@ export default function App() {
                   {(!settings[key] || settings[key].length === 0)
                     ? <p className="text-center text-gray-400 text-sm py-14">{key === 'electricityExpenses' ? 'אין חשבוניות חשמל.' : `אין הוצאות ${label}.`} לחצי על הכפתור כדי להתחיל.</p>
                     : key === 'electricityExpenses'
-                      ? <table className="w-full text-sm text-right">
+                      ? <div className="overflow-x-auto"><table className="w-full text-sm text-right">
                           <thead>
                             <tr className="border-b bg-gray-50 text-gray-500 text-xs">
                               <th className="px-3 py-3 font-medium">תקופה מ-</th>
@@ -2197,7 +2220,7 @@ export default function App() {
                               </tr>
                             ))}
                           </tbody>
-                        </table>
+                        </table></div>
                       : <div className="p-3 space-y-2">
                           {[...settings[key]].sort(compareExpenseDateDesc).map(exp => {
                             const linkedCharges = key === 'extraordinaryExpenses'
@@ -2357,7 +2380,7 @@ export default function App() {
               {/* Building info */}
               <div className="bg-white p-6 rounded-2xl border shadow-sm">
                 <h3 className="font-bold text-base text-teal-800 mb-4">פרטי הבניין</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[{label:'שם הבניין / ועד',key:'buildingName'},{label:'כתובת',key:'address'}].map(({label,key}) => (
                     <div key={key}>
                       <label className="text-[10px] text-gray-400 block mb-1">{label}</label>
@@ -2386,7 +2409,7 @@ export default function App() {
                           <X size={15} />
                         </button>
                       )}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {[{label:'שם מלא',key:'name'},{label:'תפקיד',key:'role'},{label:'טלפון',key:'phone'},{label:'מייל',key:'email'}].map(({label,key}) => (
                           <div key={key}>
                             <label className="text-[10px] text-gray-400 block mb-1">{label}</label>
@@ -2412,6 +2435,7 @@ export default function App() {
                     <Plus size={15} /> עדכון סכום
                   </button>
                 </div>
+                <div className="overflow-x-auto">
                 <table className="w-full text-sm text-right">
                   <thead><tr className="border-b text-gray-400 text-xs">
                     <th className="pb-2 font-medium">סכום (₪)</th>
@@ -2469,13 +2493,14 @@ export default function App() {
                     })}
                   </tbody>
                 </table>
+                </div>
               </div>
 
               {/* Email Settings */}
               <div className="bg-white p-6 rounded-2xl border shadow-sm">
                 <h3 className="font-bold text-base text-teal-800 mb-1">הגדרות מייל</h3>
                 <p className="text-xs text-gray-400 mb-4">פרטי EmailJS לשליחת מיילים מהמערכת</p>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[
                     { label: 'שם השולח', key: 'senderName', placeholder: 'ועד הבית' },
                     { label: 'מייל השולח (לתצוגה)', key: 'senderEmail', placeholder: 'vaad@gmail.com' },
@@ -2531,8 +2556,8 @@ export default function App() {
 
 
       {showTenantMsg && selectedTenant && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <div>
                 <h3 className="font-bold text-teal-800">שליחת הודעה לדייר</h3>
@@ -2623,8 +2648,8 @@ export default function App() {
           .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
         const ownedApts = getOwnedApartments(tenant.id);
         return (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowStatementModal(null)}>
-            <div className="bg-white rounded-2xl shadow-2xl p-6 w-80" dir="rtl" onClick={e => e.stopPropagation()}>
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowStatementModal(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-xs max-h-[90vh] overflow-y-auto" dir="rtl" onClick={e => e.stopPropagation()}>
               <h3 className="text-lg font-bold text-gray-800 mb-1">הפקת מסמך</h3>
               <p className="text-sm text-gray-500 mb-4">משפחת {tenant.name}</p>
 
@@ -2693,8 +2718,8 @@ export default function App() {
       })()}
 
       {showEmailModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-teal-800">שליחת הודעה לכל הדיירים</h3>
               <button onClick={() => { setShowEmailModal(false); setSendResult(null); }}><X size={20} className="text-gray-500 hover:text-gray-700" /></button>
@@ -2739,8 +2764,8 @@ export default function App() {
       )}
 
       {selectExpModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setSelectExpModal(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-96 max-h-[80vh] flex flex-col" dir="rtl" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectExpModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm max-h-[80vh] flex flex-col" dir="rtl" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-gray-800 mb-1">שלוף לדירות נבחרות</h3>
             <p className="text-sm text-gray-500 mb-4">{selectExpModal.description || 'הוצאה חריגה'} — ₪{(selectExpModal.perTenantAmount||0).toLocaleString()} לדייר</p>
             <div className="overflow-y-auto flex-1 divide-y divide-gray-100 mb-4">
