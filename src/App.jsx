@@ -512,6 +512,7 @@ export default function App() {
   const [showStatementModal, setShowStatementModal] = useState(null);
   const [statementYears, setStatementYears] = useState(new Set());
   const [statementMode, setStatementMode] = useState('full');
+  const [includeOwnedApts, setIncludeOwnedApts] = useState(false);
   const [filterYear, setFilterYear] = useState(CURRENT_HEBREW_YEAR);
   const [showTenantMsg, setShowTenantMsg] = useState(false);
   const [tenantMsgText, setTenantMsgText] = useState('');
@@ -803,12 +804,65 @@ export default function App() {
     return lines.join('\n');
   }
 
-  function printTenantStatement(tenant, years, mode = 'full') {
+  function renderYearsBlocksHtml(yearsData, debtsOnly) {
+    return yearsData.map(({ year, paidPayments, debtPayments, debtCharges, yearPaidTotal, yearDebtTotal }) => `
+  <div class="year-block">
+    <div class="year-title">שנת ${year}</div>
+
+    ${debtsOnly ? '' : `
+    <div class="section-title">תשלומים ששולמו</div>
+    ${paidPayments.length > 0
+      ? `<table>
+          <thead><tr><th>חודש</th><th>סכום ששולם</th><th>הערות</th></tr></thead>
+          <tbody>
+            ${paidPayments.map(p => `<tr>
+              <td>${p.hebrewMonth}</td>
+              <td class="paid">₪${(p.paidAmount || p.amount).toLocaleString()}</td>
+              <td>${p.note || ''}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`
+      : `<p class="empty">אין תשלומים רשומים</p>`}
+    <div class="year-subtotal">סה"כ שולם לשנת ${year}: <span class="paid">₪${yearPaidTotal.toLocaleString()}</span></div>
+    `}
+
+    <div class="section-title">חובות פתוחים</div>
+    ${debtPayments.length > 0 || debtCharges.length > 0
+      ? `<table>
+          <thead><tr><th>תיאור</th><th>סכום לתשלום</th><th>הערות</th></tr></thead>
+          <tbody>
+            ${debtPayments.map(p => `<tr>
+              <td>ועד בית — ${p.hebrewMonth}</td>
+              <td class="debt">₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}</td>
+              <td>${p.note || ''}</td>
+            </tr>`).join('')}
+            ${debtCharges.map(c => `<tr>
+              <td>${c.description || 'הוצאה חריגה'}</td>
+              <td class="debt">₪${c.amount.toLocaleString()}</td>
+              <td>${c.note || ''}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`
+      : `<p class="empty" style="color:#16a34a">✓ אין חובות פתוחים</p>`}
+    ${debtPayments.length > 0 || debtCharges.length > 0
+      ? `<div class="year-subtotal">סה"כ חוב לשנת ${year}: <span class="debt">₪${yearDebtTotal.toLocaleString()}</span></div>`
+      : ''}
+  </div>
+  `).join('');
+  }
+
+  function printTenantStatement(tenant, years, mode = 'full', includeOwned = false) {
     const debtsOnly = mode === 'debtsOnly';
     const { month: curMonth, year: curYear } = getCurrentHebrewDate();
     const logoSrc = settings.logo;
 
     const { yearsData, totalPaid, totalDebtAmt } = getTenantStatementData(tenant, years);
+    const ownedApts = includeOwned ? getOwnedApartments(tenant.id) : [];
+    const ownedSections = ownedApts.map(apt => {
+      const aptYears = new Set(apt.payments.map(p => p.hebrewYear));
+      const { yearsData: aptYearsData, totalPaid: aptPaid, totalDebtAmt: aptDebt } = getTenantStatementData(apt, aptYears);
+      return { apt, aptYearsData, aptPaid, aptDebt };
+    });
 
     const html = `<!DOCTYPE html>
 <html dir="rtl" lang="he">
@@ -871,55 +925,29 @@ export default function App() {
     </div>
   </div>
 
-  ${yearsData.map(({ year, paidPayments, debtPayments, debtCharges, yearPaidTotal, yearDebtTotal }) => `
-  <div class="year-block">
-    <div class="year-title">שנת ${year}</div>
-
-    ${debtsOnly ? '' : `
-    <div class="section-title">תשלומים ששולמו</div>
-    ${paidPayments.length > 0
-      ? `<table>
-          <thead><tr><th>חודש</th><th>סכום ששולם</th><th>הערות</th></tr></thead>
-          <tbody>
-            ${paidPayments.map(p => `<tr>
-              <td>${p.hebrewMonth}</td>
-              <td class="paid">₪${(p.paidAmount || p.amount).toLocaleString()}</td>
-              <td>${p.note || ''}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>`
-      : `<p class="empty">אין תשלומים רשומים</p>`}
-    <div class="year-subtotal">סה"כ שולם לשנת ${year}: <span class="paid">₪${yearPaidTotal.toLocaleString()}</span></div>
-    `}
-
-    <div class="section-title">חובות פתוחים</div>
-    ${debtPayments.length > 0 || debtCharges.length > 0
-      ? `<table>
-          <thead><tr><th>תיאור</th><th>סכום לתשלום</th><th>הערות</th></tr></thead>
-          <tbody>
-            ${debtPayments.map(p => `<tr>
-              <td>ועד בית — ${p.hebrewMonth}</td>
-              <td class="debt">₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}</td>
-              <td>${p.note || ''}</td>
-            </tr>`).join('')}
-            ${debtCharges.map(c => `<tr>
-              <td>${c.description || 'הוצאה חריגה'}</td>
-              <td class="debt">₪${c.amount.toLocaleString()}</td>
-              <td>${c.note || ''}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>`
-      : `<p class="empty" style="color:#16a34a">✓ אין חובות פתוחים</p>`}
-    ${debtPayments.length > 0 || debtCharges.length > 0
-      ? `<div class="year-subtotal">סה"כ חוב לשנת ${year}: <span class="debt">₪${yearDebtTotal.toLocaleString()}</span></div>`
-      : ''}
-  </div>
-  `).join('')}
+  ${renderYearsBlocksHtml(yearsData, debtsOnly)}
 
   <div class="summary">
     ${debtsOnly ? '' : `<div class="summary-row"><span>סה"כ שולם</span><span class="paid">₪${totalPaid.toLocaleString()}</span></div>`}
     <div class="summary-row summary-total"><span>יתרת חוב לתשלום</span><span>₪${totalDebtAmt.toLocaleString()}</span></div>
   </div>
+
+  ${ownedSections.length > 0 ? `
+  <div style="margin-top: 44px; padding-top: 26px; border-top: 3px solid #d97706;">
+    <h2 style="font-size: 18px; font-weight: bold; color: #b45309; margin-bottom: 4px;">דירות מושכרות בבעלותך</h2>
+    <p style="font-size: 12px; color: #92400e; margin-bottom: 18px;">חובת התשלום עבור הדירות הבאות חלה עלייך כבעל/ת הדירה</p>
+    ${ownedSections.map(({ apt, aptYearsData, aptPaid, aptDebt }) => `
+    <div style="margin-bottom: 30px;">
+      <div style="font-size: 15px; font-weight: bold; color: #92400e; background: #fffbeb; border-right: 4px solid #d97706; border-radius: 6px; padding: 8px 14px; margin-bottom: 8px;">דירה ${apt.apt} — ${apt.name}</div>
+      ${renderYearsBlocksHtml(aptYearsData, debtsOnly)}
+      <div class="summary" style="margin-top: 12px;">
+        ${debtsOnly ? '' : `<div class="summary-row"><span>סה"כ שולם</span><span class="paid">₪${aptPaid.toLocaleString()}</span></div>`}
+        <div class="summary-row summary-total" style="color: ${aptDebt > 0 ? '#dc2626' : '#16a34a'};"><span>יתרת חוב לתשלום</span><span>₪${aptDebt.toLocaleString()}</span></div>
+      </div>
+    </div>
+    `).join('')}
+  </div>
+  ` : ''}
 
   <div class="footer">מסמך זה הופק ב-${curMonth} ${curYear} | ${settings.buildingName || ''}</div>
 </body>
@@ -1990,6 +2018,7 @@ export default function App() {
                       .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
                     setStatementYears(new Set(available));
                     setStatementMode('full');
+                    setIncludeOwnedApts(false);
                     setShowStatementModal(selectedTenant);
                   }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
                     <FileText size={14} /> הורד מסמך
@@ -2570,6 +2599,7 @@ export default function App() {
         const tenant = showStatementModal;
         const availableYears = [...new Set(tenant.payments.map(p => p.hebrewYear))]
           .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
+        const ownedApts = getOwnedApartments(tenant.id);
         return (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowStatementModal(null)}>
             <div className="bg-white rounded-2xl shadow-2xl p-6 w-80" dir="rtl" onClick={e => e.stopPropagation()}>
@@ -2611,6 +2641,14 @@ export default function App() {
                   );
                 })}
               </div>
+
+              {ownedApts.length > 0 && (
+                <label className="flex items-center gap-3 cursor-pointer hover:bg-amber-50 py-2 px-2 rounded-lg border border-amber-200 bg-amber-50/50 mb-3">
+                  <input type="checkbox" checked={includeOwnedApts} onChange={() => setIncludeOwnedApts(v => !v)}
+                    className="w-4 h-4 accent-amber-600" />
+                  <span className="text-sm font-medium text-amber-800">כלול דירות מושכרות בבעלות ({ownedApts.length})</span>
+                </label>
+              )}
               <div className="flex items-center gap-3 text-xs mb-4 px-1">
                 <button onClick={() => setStatementYears(new Set(availableYears))} className="text-indigo-600 hover:text-indigo-800">בחר הכל</button>
                 <span className="text-gray-300">|</span>
@@ -2620,7 +2658,7 @@ export default function App() {
                 <button onClick={() => setShowStatementModal(null)} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">ביטול</button>
                 <button onClick={() => {
                   if (statementYears.size === 0) return;
-                  printTenantStatement(tenant, statementYears, statementMode);
+                  printTenantStatement(tenant, statementYears, statementMode, includeOwnedApts);
                   setShowStatementModal(null);
                 }} disabled={statementYears.size === 0}
                   className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-indigo-700 transition disabled:opacity-40 flex items-center justify-center gap-1">
