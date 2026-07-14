@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Home, ReceiptText, Building, ChevronRight, Mail, Bell, Plus, Pencil, Trash2, X, Check, Settings, Upload, ImageOff, MessageSquare, Banknote, LogOut, LayoutDashboard, Wallet, TrendingDown, Calendar, FileText, Zap, CreditCard, RefreshCw, ArrowRightLeft, FileDown } from 'lucide-react';
+import { Home, ReceiptText, Building, ChevronRight, Mail, Bell, Plus, Pencil, Trash2, X, Check, Settings, Upload, ImageOff, MessageSquare, Banknote, LogOut, LayoutDashboard, Wallet, TrendingDown, Calendar, FileText, Zap, CreditCard, RefreshCw, ArrowRightLeft, FileDown, Users, ChevronDown } from 'lucide-react';
 import emailjs from '@emailjs/browser';
 import { supabase, testConnection } from './supabase';
 
@@ -509,6 +509,7 @@ export default function App() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [selectExpModal, setSelectExpModal] = useState(null);
   const [selectedTenantIds, setSelectedTenantIds] = useState(new Set());
+  const [expandedPaidList, setExpandedPaidList] = useState(null);
   const [showStatementModal, setShowStatementModal] = useState(null);
   const [statementYears, setStatementYears] = useState(new Set());
   const [statementMode, setStatementMode] = useState('full');
@@ -2224,10 +2225,11 @@ export default function App() {
                       : <div className="p-3 space-y-2">
                           {[...settings[key]].sort(compareExpenseDateDesc).map(exp => {
                             const linkedCharges = key === 'extraordinaryExpenses'
-                              ? tenants.flatMap(t => (t.charges||[]).filter(c => c.expenseId === exp.id))
+                              ? tenants.flatMap(t => (t.charges||[]).filter(c => c.expenseId === exp.id).map(c => ({ ...c, tenant: t })))
                               : [];
                             const isPulled = linkedCharges.length > 0;
-                            const autoPaid = linkedCharges.filter(c => c.status === 'שולם').reduce((s,c) => s + c.amount, 0);
+                            const paidCharges = linkedCharges.filter(c => c.status === 'שולם');
+                            const autoPaid = paidCharges.reduce((s,c) => s + c.amount, 0);
                             const paidAmount = isPulled ? autoPaid : (exp.paidAmount || 0);
                             const remaining = Math.max(0, (exp.totalAmount||0) - paidAmount);
                             const isFullyPaid = (exp.totalAmount||0) > 0 && remaining <= 0;
@@ -2265,7 +2267,14 @@ export default function App() {
                                   <div className="flex items-center gap-1">
                                     <span className="text-[10px] text-gray-400 whitespace-nowrap">{isPulled ? 'התקבל' : 'שולם'}</span>
                                     {isPulled ? (
-                                      <span className="text-sm font-medium text-green-700" title="מתעדכן אוטומטית לפי תשלומי הדיירים">₪{paidAmount.toLocaleString()}</span>
+                                      <>
+                                        <span className="text-sm font-medium text-green-700" title="מתעדכן אוטומטית לפי תשלומי הדיירים">₪{paidAmount.toLocaleString()}</span>
+                                        <button onClick={() => setExpandedPaidList(id => id === exp.id ? null : exp.id)}
+                                          className="flex items-center gap-0.5 text-[10px] text-teal-600 border border-teal-200 hover:bg-teal-50 px-1.5 py-0.5 rounded-full transition whitespace-nowrap">
+                                          <Users size={10} /> {paidCharges.length}/{linkedCharges.length}
+                                          <ChevronDown size={10} className={`transition-transform ${expandedPaidList === exp.id ? 'rotate-180' : ''}`} />
+                                        </button>
+                                      </>
                                     ) : (
                                       <>
                                         <input type="number" value={exp.paidAmount||0} onFocus={e => e.target.select()}
@@ -2330,6 +2339,18 @@ export default function App() {
                                     </button>
                                   </div>
                                 </div>
+
+                                {isPulled && expandedPaidList === exp.id && (
+                                  <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap gap-1.5">
+                                    {linkedCharges.length === 0
+                                      ? <span className="text-xs text-gray-400">אין דיירים משויכים</span>
+                                      : linkedCharges.map(c => (
+                                        <span key={c.id} className={`text-[11px] px-2 py-0.5 rounded-full border ${c.status === 'שולם' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
+                                          דירה {c.tenant.apt} — {c.tenant.name}
+                                        </span>
+                                      ))}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
