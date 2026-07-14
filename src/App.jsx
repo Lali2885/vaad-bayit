@@ -533,6 +533,7 @@ export default function App() {
   const [dbError, setDbError] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [sendResult, setSendResult] = useState(null);
+  const [isSendingReminders, setIsSendingReminders] = useState(false);
   const [emailSubject, setEmailSubject] = useState('');
   const [tenantMsgSubject, setTenantMsgSubject] = useState('');
 
@@ -714,8 +715,7 @@ export default function App() {
   async function sendEmail(toEmail, subject, message) {
     const es = settings.emailSettings || {};
     if (!es.serviceId || !es.templateId || !es.publicKey) {
-      alert('חסרות הגדרות מייל — אנא מלאי פרטי EmailJS בהגדרות המערכת.');
-      return false;
+      throw new Error('חסרות הגדרות מייל — אנא מלאי פרטי EmailJS בהגדרות המערכת.');
     }
     await emailjs.send(es.serviceId, es.templateId, {
       to_email: toEmail,
@@ -1246,6 +1246,37 @@ export default function App() {
     }));
   }
 
+  function renderTemplateForTenant(tpl, tenant) {
+    const mgr = settings.managers[0] || {};
+    const { month } = getCurrentHebrewDate();
+    return tpl.body
+      .replace(/{שם}/g, tenant.name)
+      .replace(/{חודש}/g, month)
+      .replace(/{סכום}/g, calcDebt(tenant).toLocaleString())
+      .replace(/{תאריך}/g, new Date().toLocaleDateString('he-IL'))
+      .replace(/{מנהל}/g, mgr.name || '')
+      .replace(/{טלפון}/g, mgr.phone || '')
+      .replace(/{כתובת}/g, settings.address || '');
+  }
+
+  async function sendPaymentReminders() {
+    const tpl = settings.templates.find(t => t.name === 'תזכורת תשלום') || settings.templates[0];
+    if (!tpl) { alert('לא הוגדרה תבנית תזכורת בהגדרות המערכת'); return; }
+    const targets = tenants.filter(t => calcDebt(t) > 0 && t.email);
+    if (targets.length === 0) { alert('אין דיירים עם חוב פתוח וכתובת מייל'); return; }
+    if (!confirm(`לשלוח תזכורת תשלום ל-${targets.length} דיירים עם חוב פתוח?`)) return;
+    setIsSendingReminders(true);
+    let ok = 0, fail = 0;
+    for (const t of targets) {
+      try {
+        await sendEmail(t.email, tpl.name, renderTemplateForTenant(tpl, t));
+        ok++;
+      } catch { fail++; }
+    }
+    setIsSendingReminders(false);
+    alert(fail === 0 ? `נשלחו תזכורות ל-${ok} דיירים בהצלחה!` : `נשלח בהצלחה ל-${ok} דיירים, נכשל עבור ${fail}`);
+  }
+
   function getOwnerTenant(t) {
     if (!t?.ownerId) return null;
     return tenants.find(x => x.id === t.ownerId) || null;
@@ -1573,8 +1604,8 @@ export default function App() {
                 <p className="text-sm text-gray-500">סה"כ חוב בבניין: <span className="font-bold text-red-600">₪{totalDebt.toLocaleString()}</span></p>
               </div>
               <div className="flex gap-2 flex-wrap justify-end">
-                <button onClick={() => alert('תזכורות תשלום נשלחו!')} className="bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-1 transition">
-                  <Bell size={15} /> תזכורת
+                <button onClick={sendPaymentReminders} disabled={isSendingReminders} className="bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-1 transition disabled:opacity-50">
+                  <Bell size={15} /> {isSendingReminders ? 'שולח...' : 'תזכורת'}
                 </button>
                 <button onClick={() => setShowEmailModal(true)} className="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-1 transition">
                   <Mail size={15} /> שלח לכולם
@@ -2516,16 +2547,7 @@ export default function App() {
                 <select defaultValue="" onChange={e => {
                   const tpl = settings.templates.find(t => String(t.id) === e.target.value);
                   if (!tpl) return;
-                  const mgr = settings.managers[0] || {};
-                  const { month } = getCurrentHebrewDate();
-                  setTenantMsgText(tpl.body
-                    .replace(/{שם}/g, selectedTenant.name)
-                    .replace(/{חודש}/g, month)
-                    .replace(/{סכום}/g, calcDebt(selectedTenant).toLocaleString())
-                    .replace(/{תאריך}/g, new Date().toLocaleDateString('he-IL'))
-                    .replace(/{מנהל}/g, mgr.name || '')
-                    .replace(/{טלפון}/g, mgr.phone || '')
-                    .replace(/{כתובת}/g, settings.address || ''));
+                  setTenantMsgText(renderTemplateForTenant(tpl, selectedTenant));
                 }} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-teal-400">
                   <option value="">-- בחר תבנית --</option>
                   {settings.templates.map(t => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
