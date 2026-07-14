@@ -2094,6 +2094,8 @@ export default function App() {
                             const remaining = Math.max(0, (exp.totalAmount||0) - paidAmount);
                             const isFullyPaid = (exp.totalAmount||0) > 0 && remaining <= 0;
                             const isPartlyPaid = paidAmount > 0 && !isFullyPaid;
+                            const expensePaidAmount = exp.paidAmount || 0;
+                            const payRemaining = Math.max(0, (exp.totalAmount||0) - expensePaidAmount);
                             const cardColor = isFullyPaid ? 'bg-green-50/40 hover:bg-green-50/70' : isPartlyPaid ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'hover:bg-gray-50/50';
                             return (
                               <div key={exp.id} className={`group px-4 py-3 border border-gray-200 rounded-xl transition ${cardColor}`}>
@@ -2123,7 +2125,7 @@ export default function App() {
                                   </div>
 
                                   <div className="flex items-center gap-1">
-                                    <span className="text-[10px] text-gray-400 whitespace-nowrap">שולם</span>
+                                    <span className="text-[10px] text-gray-400 whitespace-nowrap">{isPulled ? 'התקבל' : 'שולם'}</span>
                                     {isPulled ? (
                                       <span className="text-sm font-medium text-green-700" title="מתעדכן אוטומטית לפי תשלומי הדיירים">₪{paidAmount.toLocaleString()}</span>
                                     ) : (
@@ -2137,7 +2139,23 @@ export default function App() {
                                   </div>
 
                                   {remaining > 0 && (
-                                    <span className="text-xs font-bold text-red-500 whitespace-nowrap">יתרה: ₪{remaining.toLocaleString()}</span>
+                                    <span className="text-xs font-bold text-red-500 whitespace-nowrap">{isPulled ? 'יתרה לתקבול' : 'יתרה'}: ₪{remaining.toLocaleString()}</span>
+                                  )}
+
+                                  {isPulled && (
+                                    <>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-[10px] text-gray-400 whitespace-nowrap">שולם</span>
+                                        <input type="number" value={exp.paidAmount||0} onFocus={e => e.target.select()}
+                                          onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,paidAmount:Number(e.target.value)} : x) }))}
+                                          className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-16 text-blue-700 font-medium" />
+                                        <span className="text-xs text-gray-400">₪</span>
+                                      </div>
+
+                                      {payRemaining > 0 && (
+                                        <span className="text-xs font-bold text-orange-500 whitespace-nowrap">יתרה לתשלום: ₪{payRemaining.toLocaleString()}</span>
+                                      )}
+                                    </>
                                   )}
 
                                   <input value={exp.note||''} onChange={e => setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x,note:e.target.value} : x) }))}
