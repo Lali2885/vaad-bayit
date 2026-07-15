@@ -1491,8 +1491,9 @@ export default function App() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 max-w-2xl">
 
                 {(() => {
-                  const hasAnchor = baselineBalance != null || settings.cashOverride != null;
-                  const displayBalance = baselineBalance != null ? baselineBalance : (settings.cashOverride != null ? settings.cashOverride : balance);
+                  const hasBaseline = baselineBalance != null;
+                  const hasAnchor = hasBaseline || settings.cashOverride != null;
+                  const displayBalance = hasBaseline ? baselineBalance : (settings.cashOverride != null ? settings.cashOverride : balance);
                   return (
                 <div className={`bg-white rounded-2xl border shadow-sm p-5 ${displayBalance >= 0 ? 'border-teal-100' : 'border-red-100'}`}>
                   <div className="flex items-center justify-between mb-3">
@@ -1532,12 +1533,13 @@ export default function App() {
                   ) : (
                     <p className={`text-3xl font-bold mb-3 ${displayBalance >= 0 ? 'text-teal-700' : 'text-red-500'}`}>
                       ₪{displayBalance.toLocaleString()}
-                      {hasAnchor && <span className="text-xs font-normal text-gray-400 mr-2">(מיתרת פתיחה)</span>}
+                      {hasBaseline && <span className="text-xs font-normal text-gray-400 mr-2">(מיתרת פתיחה)</span>}
+                      {!hasBaseline && settings.cashOverride != null && <span className="text-xs font-normal text-gray-400 mr-2">(עודכן ידנית — לא עוקב אוטומטית)</span>}
                     </p>
                   )}
                   <div className="text-xs text-gray-400 space-y-1">
-                    <div className="flex justify-between"><span>{hasAnchor ? 'הכנסות מאז האיפוס' : 'הכנסות'}</span><span className="text-green-600 font-semibold">₪{(baselineBalance != null ? (totalIncome - cashBaseline.incomeSnapshot) : totalIncome).toLocaleString()}</span></div>
-                    <div className="flex justify-between"><span>{hasAnchor ? 'הוצאות מאז האיפוס' : 'הוצאות'}</span><span className="text-red-400 font-semibold">₪{(baselineBalance != null ? (totalExpensesAll - cashBaseline.expenseSnapshot) : totalExpensesAll).toLocaleString()}</span></div>
+                    <div className="flex justify-between"><span>{hasBaseline ? 'הכנסות מאז האיפוס' : 'הכנסות'}</span><span className="text-green-600 font-semibold">₪{(hasBaseline ? (totalIncome - cashBaseline.incomeSnapshot) : totalIncome).toLocaleString()}</span></div>
+                    <div className="flex justify-between"><span>{hasBaseline ? 'הוצאות מאז האיפוס' : 'הוצאות'}</span><span className="text-red-400 font-semibold">₪{(hasBaseline ? (totalExpensesAll - cashBaseline.expenseSnapshot) : totalExpensesAll).toLocaleString()}</span></div>
                   </div>
                 </div>
                   );
