@@ -1138,13 +1138,18 @@ export default function App() {
     const slipHtml = (t) => {
       const debt = calcDebt(t);
       const amount = Number(t.monthlyRent) || 0;
+      const curPayment = (t.payments || []).find(p => p.hebrewMonth === curMonth && p.hebrewYear === curYear);
+      const paidThisMonth = curPayment && curPayment.status === 'שולם';
+      const reminderText = paidThisMonth
+        ? `שולם עבור חודש ${curMonth} ${curYear}, תודה רבה!`
+        : `תזכורת: נא לשלם דמי ועד בית עבור חודש ${curMonth} ${curYear}${amount ? ` בסך ₪${amount.toLocaleString()}` : ''}.`;
       return `
       <div class="slip">
         <div class="slip-header">
           <span class="apt">דירה ${t.apt}</span>
           <span class="name">${t.name || ''}</span>
         </div>
-        <div class="reminder">תזכורת: נא לשלם דמי ועד בית עבור חודש ${curMonth} ${curYear}${amount ? ` בסך ₪${amount.toLocaleString()}` : ''}.</div>
+        <div class="reminder ${paidThisMonth ? 'paid-msg' : ''}">${reminderText}</div>
         <div class="debt-line ${debt > 0 ? 'has-debt' : 'no-debt'}">יתרת חוב כוללת: ${debt > 0 ? `₪${debt.toLocaleString()}` : 'אין חוב'}</div>
       </div>`;
     };
@@ -1167,6 +1172,7 @@ export default function App() {
       .apt { font-size: 16px; font-weight: bold; color: #0f766e; }
       .name { font-size: 14px; font-weight: bold; }
       .reminder { font-size: 17px; line-height: 1.6; flex-grow: 1; display: flex; align-items: center; }
+      .reminder.paid-msg { color: #16a34a; font-weight: bold; }
       .debt-line { font-size: 19px; font-weight: bold; border-top: 1px solid #e2e8f0; padding-top: 2mm; margin-top: 2mm; }
       .has-debt { color: #dc2626; }
       .no-debt { color: #16a34a; }
