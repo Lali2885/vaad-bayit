@@ -686,14 +686,6 @@ export default function App() {
     return () => clearTimeout(t);
   }, [settings, session]);
 
-  useEffect(() => {
-    if (!tenants || !settings) return;
-    const validIds = new Set((settings.extraordinaryExpenses || []).map(e => e.id));
-    const hasOrphans = tenants.some(t => (t.charges||[]).some(c => c.expenseId && !validIds.has(c.expenseId)));
-    if (hasOrphans) {
-      setTenants(prev => prev.map(t => ({ ...t, charges: (t.charges||[]).filter(c => !c.expenseId || validIds.has(c.expenseId)) })));
-    }
-  }, [tenants, settings]);
 
   async function handleLogin(e) {
     e.preventDefault();
