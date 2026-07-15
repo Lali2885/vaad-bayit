@@ -1428,7 +1428,7 @@ export default function App() {
           const totalIncome = tenants.reduce((sum, t) =>
             sum + t.payments.reduce((s, p) =>
               s + (p.status === 'שולם' ? (p.paidAmount || p.amount) : (p.paidAmount || 0)), 0
-            ), 0
+            ) + (t.charges || []).filter(c => c.status === 'שולם').reduce((s, c) => s + c.amount, 0), 0
           );
 
           const totalExpensesAll = [
