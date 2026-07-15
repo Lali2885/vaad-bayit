@@ -1166,8 +1166,8 @@ export default function App() {
       .slip-header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #0f766e; padding-bottom: 3mm; margin-bottom: 3mm; }
       .apt { font-size: 16px; font-weight: bold; color: #0f766e; }
       .name { font-size: 14px; font-weight: bold; }
-      .reminder { font-size: 12px; line-height: 1.5; flex-grow: 1; }
-      .debt-line { font-size: 13px; font-weight: bold; border-top: 1px solid #e2e8f0; padding-top: 2mm; margin-top: 2mm; }
+      .reminder { font-size: 17px; line-height: 1.6; flex-grow: 1; display: flex; align-items: center; }
+      .debt-line { font-size: 19px; font-weight: bold; border-top: 1px solid #e2e8f0; padding-top: 2mm; margin-top: 2mm; }
       .has-debt { color: #dc2626; }
       .no-debt { color: #16a34a; }
       @media print { .sheet { page-break-after: always; } }
