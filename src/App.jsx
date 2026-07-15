@@ -1149,10 +1149,12 @@ export default function App() {
         const key = c.description || 'הוצאה חריגה';
         chargeDebtsByDesc[key] = (chargeDebtsByDesc[key] || 0) + c.amount;
       });
+      const currentMonthDebt = (curPayment && curPayment.status === 'חוב') ? curPayment.amount - (curPayment.paidAmount || 0) : 0;
       const prevMonthsDebt = (t.payments || [])
         .filter(p => p.status === 'חוב' && !(p.hebrewMonth === curMonth && p.hebrewYear === curYear))
         .reduce((s, p) => s + p.amount - (p.paidAmount || 0), 0);
       const debtDetailLines = [
+        ...(currentMonthDebt > 0 ? [`₪${currentMonthDebt.toLocaleString()} – חודש ${curMonth} ${curYear} (החודש הנוכחי)`] : []),
         ...Object.entries(chargeDebtsByDesc).map(([desc, amt]) => `₪${amt.toLocaleString()} – ${desc}`),
         ...(prevMonthsDebt > 0 ? [`₪${prevMonthsDebt.toLocaleString()} – תשלומים חודשיים קודמים (ניתן לקבל פירוט מלא במייל)`] : []),
       ];
