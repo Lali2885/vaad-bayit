@@ -21,6 +21,7 @@ const INITIAL_SETTINGS = {
   regularExpenses: [],
   extraordinaryExpenses: [],
   cashOverride: null,
+  cashBaseline: null,
   expensesResetAt: 0,
   emailSettings: {
     senderName: 'ועד הבית',
@@ -1438,6 +1439,10 @@ export default function App() {
           ].reduce((sum, e) => sum + (e.totalAmount || 0), 0);
 
           const balance = totalIncome - totalExpensesAll;
+          const cashBaseline = settings.cashBaseline;
+          const baselineBalance = cashBaseline
+            ? cashBaseline.amount + (totalIncome - cashBaseline.incomeSnapshot) - (totalExpensesAll - cashBaseline.expenseSnapshot)
+            : null;
 
           const expensesResetAt = settings.expensesResetAt || 0;
           const thisMonthElec = (settings.electricityExpenses || [])
@@ -1486,7 +1491,8 @@ export default function App() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 max-w-2xl">
 
                 {(() => {
-                  const displayBalance = settings.cashOverride != null ? settings.cashOverride : balance;
+                  const hasAnchor = baselineBalance != null || settings.cashOverride != null;
+                  const displayBalance = baselineBalance != null ? baselineBalance : (settings.cashOverride != null ? settings.cashOverride : balance);
                   return (
                 <div className={`bg-white rounded-2xl border shadow-sm p-5 ${displayBalance >= 0 ? 'border-teal-100' : 'border-red-100'}`}>
                   <div className="flex items-center justify-between mb-3">
@@ -1498,7 +1504,7 @@ export default function App() {
                     </div>
                     {!editingCash && (
                       <button onClick={() => { setCashInput(String(displayBalance)); setEditingCash(true); }}
-                        className="text-gray-300 hover:text-teal-600 transition" title="עדכון ידני">
+                        className="text-gray-300 hover:text-teal-600 transition" title="קביעת יתרת פתיחה חדשה">
                         <Pencil size={14} />
                       </button>
                     )}
@@ -1510,26 +1516,29 @@ export default function App() {
                           className="w-32 border border-gray-200 rounded-lg px-2 py-1 text-lg font-bold focus:outline-none focus:ring-2 focus:ring-teal-400" />
                         <span className="text-lg font-bold text-gray-400">₪</span>
                       </div>
+                      <p className="text-[11px] text-gray-400 mt-1">הסכום הזה יהפוך ליתרת פתיחה — מכאן והלאה כל הכנסה/הוצאה חדשה תעודכן אוטומטית ביחס אליו.</p>
                       <div className="flex items-center gap-3 mt-2 text-xs">
-                        <button onClick={() => { setSettings(s => ({ ...s, cashOverride: Number(cashInput) || 0 })); setEditingCash(false); }}
-                          className="text-teal-600 font-bold hover:underline">שמור</button>
+                        <button onClick={() => {
+                          setSettings(s => ({ ...s, cashOverride: null, cashBaseline: { amount: Number(cashInput) || 0, incomeSnapshot: totalIncome, expenseSnapshot: totalExpensesAll, setAt: Date.now() } }));
+                          setEditingCash(false);
+                        }} className="text-teal-600 font-bold hover:underline">שמור כיתרת פתיחה</button>
                         <button onClick={() => setEditingCash(false)} className="text-gray-400 hover:underline">ביטול</button>
-                        {settings.cashOverride != null && (
-                          <button onClick={() => { setSettings(s => ({ ...s, cashOverride: null })); setEditingCash(false); }}
-                            className="text-amber-500 hover:underline">חשב אוטומטית</button>
+                        {hasAnchor && (
+                          <button onClick={() => { setSettings(s => ({ ...s, cashOverride: null, cashBaseline: null })); setEditingCash(false); }}
+                            className="text-amber-500 hover:underline">חשב אוטומטית (הכל מההתחלה)</button>
                         )}
                       </div>
                     </div>
                   ) : (
                     <p className={`text-3xl font-bold mb-3 ${displayBalance >= 0 ? 'text-teal-700' : 'text-red-500'}`}>
                       ₪{displayBalance.toLocaleString()}
-                      {settings.cashOverride != null && <span className="text-xs font-normal text-gray-400 mr-2">(עודכן ידנית)</span>}
+                      {hasAnchor && <span className="text-xs font-normal text-gray-400 mr-2">(מיתרת פתיחה)</span>}
                     </p>
                   )}
                   <div className="text-xs text-gray-400 space-y-1">
                     <div className="flex justify-between"><span>הכנסות</span><span className="text-green-600 font-semibold">₪{totalIncome.toLocaleString()}</span></div>
                     <div className="flex justify-between"><span>הוצאות</span><span className="text-red-400 font-semibold">₪{totalExpensesAll.toLocaleString()}</span></div>
-                    {settings.cashOverride != null && <div className="flex justify-between"><span>לפי חישוב אוטומטי</span><span className="font-semibold text-gray-400">₪{balance.toLocaleString()}</span></div>}
+                    {hasAnchor && <div className="flex justify-between"><span>לפי חישוב אוטומטי (הכל)</span><span className="font-semibold text-gray-400">₪{balance.toLocaleString()}</span></div>}
                   </div>
                 </div>
                   );
