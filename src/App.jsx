@@ -1126,6 +1126,62 @@ export default function App() {
     w.document.close();
   }
 
+  function printReminderSlips() {
+    const { month: curMonth, year: curYear } = getCurrentHebrewDate();
+    const dateStr = new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const sorted = [...(tenants || [])].sort((a, b) => Number(a.apt) - Number(b.apt));
+
+    const slotsPerPage = 6;
+    const pages = [];
+    for (let i = 0; i < sorted.length; i += slotsPerPage) pages.push(sorted.slice(i, i + slotsPerPage));
+
+    const slipHtml = (t) => {
+      const debt = calcDebt(t);
+      const amount = Number(t.monthlyRent) || 0;
+      return `
+      <div class="slip">
+        <div class="slip-header">
+          <span class="apt">דירה ${t.apt}</span>
+          <span class="name">${t.name || ''}</span>
+        </div>
+        <div class="reminder">תזכורת: נא לשלם דמי ועד בית עבור חודש ${curMonth} ${curYear}${amount ? ` בסך ₪${amount.toLocaleString()}` : ''}.</div>
+        <div class="debt-line ${debt > 0 ? 'has-debt' : 'no-debt'}">יתרת חוב כוללת: ${debt > 0 ? `₪${debt.toLocaleString()}` : 'אין חוב'}</div>
+      </div>`;
+    };
+
+    const pagesHtml = pages.map(pageTenants => `
+      <div class="sheet">
+        ${pageTenants.map(slipHtml).join('')}
+      </div>`).join('');
+
+    const html = `<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="UTF-8">
+    <title>פתקי תזכורת תשלום</title>
+    <style>
+      @page { size: A4; margin: 10mm; }
+      * { box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; direction: rtl; color: #222; margin: 0; }
+      .sheet { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); gap: 6mm; height: 277mm; page-break-after: always; }
+      .sheet:last-child { page-break-after: auto; }
+      .slip { border: 1px dashed #94a3b8; border-radius: 6px; padding: 5mm; display: flex; flex-direction: column; justify-content: space-between; break-inside: avoid; }
+      .slip-header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #0f766e; padding-bottom: 3mm; margin-bottom: 3mm; }
+      .apt { font-size: 16px; font-weight: bold; color: #0f766e; }
+      .name { font-size: 14px; font-weight: bold; }
+      .reminder { font-size: 12px; line-height: 1.5; flex-grow: 1; }
+      .debt-line { font-size: 13px; font-weight: bold; border-top: 1px solid #e2e8f0; padding-top: 2mm; margin-top: 2mm; }
+      .has-debt { color: #dc2626; }
+      .no-debt { color: #16a34a; }
+      @media print { .sheet { page-break-after: always; } }
+    </style></head><body>
+    ${pagesHtml || '<p>אין דיירים</p>'}
+    <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 600); }<\/script>
+    </body></html>`;
+
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+  }
+
   function openSettings() {
     setSettingsData({ ...settings });
     setView('settings');
@@ -1634,6 +1690,9 @@ export default function App() {
                 </button>
                 <button onClick={printTenantsStatusReport} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 hover:border-teal-400 hover:text-teal-700 px-4 py-2 rounded-full text-sm font-medium shadow-sm transition">
                   <FileDown size={15} /> הורד דוח מצב
+                </button>
+                <button onClick={printReminderSlips} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 hover:border-teal-400 hover:text-teal-700 px-4 py-2 rounded-full text-sm font-medium shadow-sm transition">
+                  <FileDown size={15} /> פתקי תזכורת
                 </button>
               </div>
             </header>
