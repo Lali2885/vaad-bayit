@@ -1536,9 +1536,8 @@ export default function App() {
                     </p>
                   )}
                   <div className="text-xs text-gray-400 space-y-1">
-                    <div className="flex justify-between"><span>הכנסות</span><span className="text-green-600 font-semibold">₪{totalIncome.toLocaleString()}</span></div>
-                    <div className="flex justify-between"><span>הוצאות</span><span className="text-red-400 font-semibold">₪{totalExpensesAll.toLocaleString()}</span></div>
-                    {hasAnchor && <div className="flex justify-between"><span>לפי חישוב אוטומטי (הכל)</span><span className="font-semibold text-gray-400">₪{balance.toLocaleString()}</span></div>}
+                    <div className="flex justify-between"><span>{hasAnchor ? 'הכנסות מאז האיפוס' : 'הכנסות'}</span><span className="text-green-600 font-semibold">₪{(baselineBalance != null ? (totalIncome - cashBaseline.incomeSnapshot) : totalIncome).toLocaleString()}</span></div>
+                    <div className="flex justify-between"><span>{hasAnchor ? 'הוצאות מאז האיפוס' : 'הוצאות'}</span><span className="text-red-400 font-semibold">₪{(baselineBalance != null ? (totalExpensesAll - cashBaseline.expenseSnapshot) : totalExpensesAll).toLocaleString()}</span></div>
                   </div>
                 </div>
                   );
