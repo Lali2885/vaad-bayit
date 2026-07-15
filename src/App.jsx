@@ -1143,6 +1143,20 @@ export default function App() {
       const reminderText = paidThisMonth
         ? `שולם עבור חודש ${curMonth} ${curYear}, תודה רבה!`
         : `תזכורת: נא לשלם דמי ועד בית עבור חודש ${curMonth} ${curYear}${amount ? ` בסך ₪${amount.toLocaleString()}` : ''}.`;
+
+      const chargeDebtsByDesc = {};
+      (t.charges || []).filter(c => c.status === 'חוב').forEach(c => {
+        const key = c.description || 'הוצאה חריגה';
+        chargeDebtsByDesc[key] = (chargeDebtsByDesc[key] || 0) + c.amount;
+      });
+      const prevMonthsDebt = (t.payments || [])
+        .filter(p => p.status === 'חוב' && !(p.hebrewMonth === curMonth && p.hebrewYear === curYear))
+        .reduce((s, p) => s + p.amount - (p.paidAmount || 0), 0);
+      const debtDetailLines = [
+        ...Object.entries(chargeDebtsByDesc).map(([desc, amt]) => `₪${amt.toLocaleString()} – ${desc}`),
+        ...(prevMonthsDebt > 0 ? [`₪${prevMonthsDebt.toLocaleString()} – תשלומים חודשיים קודמים (ניתן לקבל פירוט מלא במייל)`] : []),
+      ];
+
       return `
       <div class="slip">
         <div class="slip-header">
@@ -1151,6 +1165,7 @@ export default function App() {
         </div>
         <div class="reminder ${paidThisMonth ? 'paid-msg' : ''}">${reminderText}</div>
         <div class="debt-line ${debt > 0 ? 'has-debt' : 'no-debt'}">יתרת חוב כוללת: ${debt > 0 ? `₪${debt.toLocaleString()}` : 'אין חוב'}</div>
+        ${debtDetailLines.map(line => `<div class="debt-detail">${line}</div>`).join('')}
       </div>`;
     };
 
@@ -1174,6 +1189,7 @@ export default function App() {
       .reminder { font-size: 17px; line-height: 1.6; flex-grow: 1; display: flex; align-items: center; }
       .reminder.paid-msg { color: #16a34a; font-weight: bold; }
       .debt-line { font-size: 19px; font-weight: bold; border-top: 1px solid #e2e8f0; padding-top: 2mm; margin-top: 2mm; }
+      .debt-detail { font-size: 10px; color: #64748b; margin-top: 1mm; }
       .has-debt { color: #dc2626; }
       .no-debt { color: #16a34a; }
       @media print { .sheet { page-break-after: always; } }
