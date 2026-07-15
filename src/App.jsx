@@ -518,6 +518,8 @@ export default function App() {
   const [filterYear, setFilterYear] = useState(CURRENT_HEBREW_YEAR);
   const [showTenantMsg, setShowTenantMsg] = useState(false);
   const [tenantMsgText, setTenantMsgText] = useState('');
+  const [attachPdf, setAttachPdf] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [editingCash, setEditingCash] = useState(false);
   const [cashInput, setCashInput] = useState('');
   const logoInputRef = useRef(null);
@@ -706,7 +708,7 @@ export default function App() {
     await supabase.auth.signOut();
   }
 
-  async function sendEmail(toEmail, subject, message) {
+  async function sendEmail(toEmail, subject, message, attachmentDataUri) {
     const es = settings.emailSettings || {};
     if (!es.serviceId || !es.templateId || !es.publicKey) {
       throw new Error('חסרות הגדרות מייל — אנא מלאי פרטי EmailJS בהגדרות המערכת.');
@@ -717,6 +719,7 @@ export default function App() {
       message,
       from_name: es.senderName || 'ועד הבית',
       reply_to: es.senderEmail || '',
+      attachment: attachmentDataUri || '',
     }, es.publicKey);
     return true;
   }
@@ -845,7 +848,7 @@ export default function App() {
   `).join('');
   }
 
-  function printTenantStatement(tenant, years, mode = 'full', includeOwned = false) {
+  function buildTenantStatementHtml(tenant, years, mode = 'full', includeOwned = false) {
     const debtsOnly = mode === 'debtsOnly';
     const { month: curMonth, year: curYear } = getCurrentHebrewDate();
     const logoSrc = settings.logo;
@@ -947,10 +950,65 @@ export default function App() {
 </body>
 </html>`;
 
+    return html;
+  }
+
+  function printTenantStatement(tenant, years, mode = 'full', includeOwned = false) {
+    const html = buildTenantStatementHtml(tenant, years, mode, includeOwned);
     const w = window.open('', '_blank');
     w.document.write(html);
     w.document.close();
     setTimeout(() => w.print(), 800);
+  }
+
+  async function generateStatementPdfDataUri(tenant, years, mode = 'full', includeOwned = false) {
+    const html = buildTenantStatementHtml(tenant, years, mode, includeOwned);
+    const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
+      import('jspdf'), import('html2canvas'),
+    ]);
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.top = '0';
+    iframe.style.left = '-10000px';
+    iframe.style.width = '900px';
+    iframe.style.height = '1px';
+    document.body.appendChild(iframe);
+
+    try {
+      await new Promise((resolve, reject) => {
+        iframe.onload = resolve;
+        iframe.onerror = reject;
+        iframe.srcdoc = html;
+      });
+      await new Promise(r => setTimeout(r, 400));
+
+      const doc = iframe.contentDocument;
+      doc.body.style.width = '900px';
+      const canvas = await html2canvas(doc.body, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.75);
+      const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const imgW = pageW;
+      const imgH = (canvas.height * imgW) / canvas.width;
+
+      let heightLeft = imgH;
+      let position = 0;
+      pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
+      heightLeft -= pageH;
+      while (heightLeft > 0) {
+        position = heightLeft - imgH;
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
+        heightLeft -= pageH;
+      }
+
+      return pdf.output('datauristring');
+    } finally {
+      document.body.removeChild(iframe);
+    }
   }
 
   function printExpensesReport() {
@@ -2168,7 +2226,16 @@ export default function App() {
                   }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
                     <FileText size={14} /> הורד מסמך
                   </button>
-                  <button onClick={() => { setTenantMsgText(''); setShowTenantMsg(true); }} className="w-full bg-sky-600 hover:bg-sky-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
+                  <button onClick={() => {
+                    const available = [...new Set(selectedTenant.payments.map(p => p.hebrewYear))]
+                      .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
+                    setStatementYears(new Set(available));
+                    setStatementMode('full');
+                    setIncludeOwnedApts(false);
+                    setAttachPdf(false);
+                    setTenantMsgText('');
+                    setShowTenantMsg(true);
+                  }} className="w-full bg-sky-600 hover:bg-sky-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
                     <MessageSquare size={14} /> שלח הודעה
                   </button>
                   <button onClick={() => deleteTenant(selectedTenant.id)} className="w-full border border-red-200 text-red-500 hover:bg-red-50 py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
@@ -2722,6 +2789,51 @@ export default function App() {
               <p className="text-xs text-orange-500 mt-2">לדייר זה אין כתובת מייל — הוסיפי בפרטי הדייר</p>
             )}
 
+            <div className="mt-3 p-3 bg-gray-50 rounded-xl">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={attachPdf} onChange={() => setAttachPdf(v => !v)} className="w-4 h-4 accent-sky-600" />
+                <span className="text-sm font-medium text-gray-700">צרף קובץ PDF עם פירוט</span>
+              </label>
+              {attachPdf && (() => {
+                const availableYears = [...new Set(selectedTenant.payments.map(p => p.hebrewYear))]
+                  .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
+                const ownedApts = getOwnedApartments(selectedTenant.id);
+                return (
+                  <div className="mt-3 space-y-3">
+                    <div className="flex gap-2">
+                      <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="radio" name="msgStatementMode" checked={statementMode === 'full'} onChange={() => setStatementMode('full')} className="w-3.5 h-3.5 accent-sky-600" />
+                        פירוט מלא
+                      </label>
+                      <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="radio" name="msgStatementMode" checked={statementMode === 'debtsOnly'} onChange={() => setStatementMode('debtsOnly')} className="w-3.5 h-3.5 accent-sky-600" />
+                        חובות בלבד
+                      </label>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {availableYears.map(year => (
+                        <label key={year} className="flex items-center gap-1 text-xs bg-white border rounded-full px-2 py-1 cursor-pointer">
+                          <input type="checkbox" checked={statementYears.has(year)} onChange={() => setStatementYears(prev => {
+                            const next = new Set(prev);
+                            if (next.has(year)) next.delete(year); else next.add(year);
+                            return next;
+                          })} className="w-3 h-3 accent-sky-600" />
+                          {year}
+                        </label>
+                      ))}
+                    </div>
+                    {ownedApts.length > 0 && (
+                      <label className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input type="checkbox" checked={includeOwnedApts} onChange={() => setIncludeOwnedApts(v => !v)} className="w-3.5 h-3.5 accent-amber-600" />
+                        כלול דירות מושכרות בבעלות ({ownedApts.length})
+                      </label>
+                    )}
+                    {statementYears.size === 0 && <p className="text-xs text-orange-500">בחרי לפחות שנה אחת לצירוף</p>}
+                  </div>
+                );
+              })()}
+            </div>
+
             {(selectedTenant.phone || selectedTenant.email) && (
               <div className="mt-3 p-3 bg-gray-50 rounded-xl text-xs text-gray-500 space-y-1">
                 {selectedTenant.phone && <p>טלפון: <span className="font-medium text-gray-700 select-all">{selectedTenant.phone}</span></p>}
@@ -2734,19 +2846,26 @@ export default function App() {
             )}
             <div className="flex gap-2 mt-4 justify-end">
               <button onClick={() => { setShowTenantMsg(false); setSendResult(null); }} className="border px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">ביטול</button>
-              <button disabled={isSending || !tenantMsgText.trim() || !selectedTenant?.email}
+              <button disabled={isSending || isGeneratingPdf || !tenantMsgText.trim() || !selectedTenant?.email || (attachPdf && statementYears.size === 0)}
                 onClick={async () => {
-                  setIsSending(true);
                   setSendResult(null);
                   try {
-                    await sendEmail(selectedTenant.email, tenantMsgSubject, tenantMsgText);
+                    let pdfDataUri = null;
+                    if (attachPdf) {
+                      setIsGeneratingPdf(true);
+                      pdfDataUri = await generateStatementPdfDataUri(selectedTenant, statementYears, statementMode, includeOwnedApts);
+                      setIsGeneratingPdf(false);
+                    }
+                    setIsSending(true);
+                    await sendEmail(selectedTenant.email, tenantMsgSubject, tenantMsgText, pdfDataUri);
                     setSendResult({ ok: true, msg: `נשלח בהצלחה ל-${selectedTenant.name}!` });
                     setTimeout(() => { setShowTenantMsg(false); setTenantMsgText(''); setTenantMsgSubject(''); setSendResult(null); }, 1500);
                   } catch { setSendResult({ ok: false, msg: 'שגיאה בשליחה — בדקי הגדרות מייל' }); }
+                  setIsGeneratingPdf(false);
                   setIsSending(false);
                 }}
                 className="bg-sky-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-sky-700 transition flex items-center gap-1 disabled:opacity-50">
-                {isSending ? 'שולח...' : <><Mail size={14} /> שלח</>}
+                {isGeneratingPdf ? 'מכין PDF...' : isSending ? 'שולח...' : <><Mail size={14} /> שלח</>}
               </button>
             </div>
           </div>
