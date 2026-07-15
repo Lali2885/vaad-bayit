@@ -1162,8 +1162,11 @@ export default function App() {
       return `
       <div class="slip">
         <div class="slip-header">
-          <span class="apt">דירה ${t.apt}</span>
-          <span class="name">${t.name || ''}</span>
+          ${settings.logo ? `<img src="${settings.logo}" class="logo" />` : ''}
+          <div class="apt-name-row">
+            <span class="apt">דירה ${t.apt}</span>
+            <span class="name">${t.name || ''}</span>
+          </div>
         </div>
         <div class="reminder ${paidThisMonth ? 'paid-msg' : ''}">${reminderText}</div>
         <div class="debt-line ${debt > 0 ? 'has-debt' : 'no-debt'}">יתרת חוב כוללת: ${debt > 0 ? `₪${debt.toLocaleString()}` : 'אין חוב'}</div>
@@ -1185,7 +1188,9 @@ export default function App() {
       .sheet { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); gap: 6mm; height: 277mm; page-break-after: always; }
       .sheet:last-child { page-break-after: auto; }
       .slip { border: 1px dashed #94a3b8; border-radius: 6px; padding: 5mm; display: flex; flex-direction: column; justify-content: space-between; break-inside: avoid; }
-      .slip-header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #0f766e; padding-bottom: 3mm; margin-bottom: 3mm; }
+      .slip-header { display: flex; flex-direction: column; align-items: center; border-bottom: 2px solid #0f766e; padding-bottom: 3mm; margin-bottom: 3mm; }
+      .logo { max-height: 12mm; max-width: 45mm; object-fit: contain; margin-bottom: 2mm; }
+      .apt-name-row { display: flex; justify-content: space-between; align-items: baseline; width: 100%; }
       .apt { font-size: 16px; font-weight: bold; color: #0f766e; }
       .name { font-size: 14px; font-weight: bold; }
       .reminder { font-size: 17px; line-height: 1.6; flex-grow: 1; display: flex; align-items: center; }
