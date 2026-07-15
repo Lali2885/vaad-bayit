@@ -518,8 +518,6 @@ export default function App() {
   const [filterYear, setFilterYear] = useState(CURRENT_HEBREW_YEAR);
   const [showTenantMsg, setShowTenantMsg] = useState(false);
   const [tenantMsgText, setTenantMsgText] = useState('');
-  const [attachPdf, setAttachPdf] = useState(false);
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [editingCash, setEditingCash] = useState(false);
   const [cashInput, setCashInput] = useState('');
   const logoInputRef = useRef(null);
@@ -708,7 +706,7 @@ export default function App() {
     await supabase.auth.signOut();
   }
 
-  async function sendEmail(toEmail, subject, message, attachmentDataUri) {
+  async function sendEmail(toEmail, subject, message) {
     const es = settings.emailSettings || {};
     if (!es.serviceId || !es.templateId || !es.publicKey) {
       throw new Error('חסרות הגדרות מייל — אנא מלאי פרטי EmailJS בהגדרות המערכת.');
@@ -719,7 +717,6 @@ export default function App() {
       message,
       from_name: es.senderName || 'ועד הבית',
       reply_to: es.senderEmail || '',
-      attachment: attachmentDataUri || '',
     }, es.publicKey);
     return true;
   }
@@ -754,10 +751,10 @@ export default function App() {
     return { yearsData, totalPaid, totalDebtAmt };
   }
 
-  function buildTenantStatementText(tenant, mode = 'full') {
+  function buildTenantStatementText(tenant, mode = 'full', years) {
     const debtsOnly = mode === 'debtsOnly';
-    const years = new Set(tenant.payments.map(p => p.hebrewYear));
-    const { yearsData, totalPaid, totalDebtAmt } = getTenantStatementData(tenant, years);
+    const yearsToUse = years && years.size > 0 ? years : new Set(tenant.payments.map(p => p.hebrewYear));
+    const { yearsData, totalPaid, totalDebtAmt } = getTenantStatementData(tenant, yearsToUse);
 
     const lines = [debtsOnly ? 'פירוט חובות:' : 'פירוט תשלומים וחובות:', ''];
 
@@ -959,56 +956,6 @@ export default function App() {
     w.document.write(html);
     w.document.close();
     setTimeout(() => w.print(), 800);
-  }
-
-  async function generateStatementPdfDataUri(tenant, years, mode = 'full', includeOwned = false) {
-    const html = buildTenantStatementHtml(tenant, years, mode, includeOwned);
-    const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
-      import('jspdf'), import('html2canvas'),
-    ]);
-
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.top = '0';
-    iframe.style.left = '-10000px';
-    iframe.style.width = '900px';
-    iframe.style.height = '1px';
-    document.body.appendChild(iframe);
-
-    try {
-      await new Promise((resolve, reject) => {
-        iframe.onload = resolve;
-        iframe.onerror = reject;
-        iframe.srcdoc = html;
-      });
-      await new Promise(r => setTimeout(r, 400));
-
-      const doc = iframe.contentDocument;
-      doc.body.style.width = '900px';
-      const canvas = await html2canvas(doc.body, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.75);
-      const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-      const imgW = pageW;
-      const imgH = (canvas.height * imgW) / canvas.width;
-
-      let heightLeft = imgH;
-      let position = 0;
-      pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
-      heightLeft -= pageH;
-      while (heightLeft > 0) {
-        position = heightLeft - imgH;
-        pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
-        heightLeft -= pageH;
-      }
-
-      return pdf.output('datauristring');
-    } finally {
-      document.body.removeChild(iframe);
-    }
   }
 
   function printExpensesReport() {
@@ -2232,7 +2179,6 @@ export default function App() {
                     setStatementYears(new Set(available));
                     setStatementMode('full');
                     setIncludeOwnedApts(false);
-                    setAttachPdf(false);
                     setTenantMsgText('');
                     setShowTenantMsg(true);
                   }} className="w-full bg-sky-600 hover:bg-sky-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
@@ -2763,25 +2709,6 @@ export default function App() {
               <input value={tenantMsgSubject} onChange={e => setTenantMsgSubject(e.target.value)} placeholder="נושא ההודעה"
                 className="w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-teal-400" dir="rtl" />
             </div>
-            <div className="flex items-center gap-2 mb-2">
-              <button type="button"
-                onClick={() => setTenantMsgText(t => (t.trim() ? t.trim() + '\n\n' : '') + buildTenantStatementText(selectedTenant, 'full'))}
-                className="text-xs border border-gray-200 rounded-full px-3 py-1.5 text-gray-600 hover:border-teal-400 hover:text-teal-700 transition flex items-center gap-1">
-                <FileText size={12} /> הוסף פירוט מלא
-              </button>
-              <button type="button"
-                onClick={() => setTenantMsgText(t => (t.trim() ? t.trim() + '\n\n' : '') + buildTenantStatementText(selectedTenant, 'debtsOnly'))}
-                className="text-xs border border-gray-200 rounded-full px-3 py-1.5 text-gray-600 hover:border-teal-400 hover:text-teal-700 transition flex items-center gap-1">
-                <FileText size={12} /> הוסף פירוט חובות
-              </button>
-              {getOwnedApartments(selectedTenant.id).length > 0 && (
-                <button type="button"
-                  onClick={() => setTenantMsgText(t => (t.trim() ? t.trim() + '\n\n' : '') + buildOwnedAptsDebtsText(selectedTenant))}
-                  className="text-xs border border-purple-200 rounded-full px-3 py-1.5 text-purple-600 hover:border-purple-400 hover:bg-purple-50 transition flex items-center gap-1">
-                  <FileText size={12} /> הוסף חובות דירות בבעלות
-                </button>
-              )}
-            </div>
             <textarea value={tenantMsgText} onChange={e => setTenantMsgText(e.target.value)}
               placeholder="כתוב את ההודעה כאן..."
               className="w-full border rounded-xl p-3 text-sm h-40 resize-none focus:outline-none focus:ring-1 focus:ring-teal-400" dir="rtl" />
@@ -2789,27 +2716,24 @@ export default function App() {
               <p className="text-xs text-orange-500 mt-2">לדייר זה אין כתובת מייל — הוסיפי בפרטי הדייר</p>
             )}
 
-            <div className="mt-3 p-3 bg-gray-50 rounded-xl">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={attachPdf} onChange={() => setAttachPdf(v => !v)} className="w-4 h-4 accent-sky-600" />
-                <span className="text-sm font-medium text-gray-700">צרף קובץ PDF עם פירוט</span>
-              </label>
-              {attachPdf && (() => {
+            <div className="mt-3 p-3 bg-gray-50 rounded-xl space-y-3">
+              <p className="text-sm font-medium text-gray-700">הוספת פירוט לגוף ההודעה</p>
+              <div className="flex gap-2">
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input type="radio" name="msgStatementMode" checked={statementMode === 'full'} onChange={() => setStatementMode('full')} className="w-3.5 h-3.5 accent-sky-600" />
+                  פירוט מלא
+                </label>
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input type="radio" name="msgStatementMode" checked={statementMode === 'debtsOnly'} onChange={() => setStatementMode('debtsOnly')} className="w-3.5 h-3.5 accent-sky-600" />
+                  חובות בלבד
+                </label>
+              </div>
+              {(() => {
                 const availableYears = [...new Set(selectedTenant.payments.map(p => p.hebrewYear))]
                   .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
                 const ownedApts = getOwnedApartments(selectedTenant.id);
                 return (
-                  <div className="mt-3 space-y-3">
-                    <div className="flex gap-2">
-                      <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                        <input type="radio" name="msgStatementMode" checked={statementMode === 'full'} onChange={() => setStatementMode('full')} className="w-3.5 h-3.5 accent-sky-600" />
-                        פירוט מלא
-                      </label>
-                      <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                        <input type="radio" name="msgStatementMode" checked={statementMode === 'debtsOnly'} onChange={() => setStatementMode('debtsOnly')} className="w-3.5 h-3.5 accent-sky-600" />
-                        חובות בלבד
-                      </label>
-                    </div>
+                  <>
                     <div className="flex flex-wrap gap-2">
                       {availableYears.map(year => (
                         <label key={year} className="flex items-center gap-1 text-xs bg-white border rounded-full px-2 py-1 cursor-pointer">
@@ -2828,8 +2752,20 @@ export default function App() {
                         כלול דירות מושכרות בבעלות ({ownedApts.length})
                       </label>
                     )}
-                    {statementYears.size === 0 && <p className="text-xs text-orange-500">בחרי לפחות שנה אחת לצירוף</p>}
-                  </div>
+                    <button type="button" disabled={statementYears.size === 0}
+                      onClick={() => {
+                        let text = buildTenantStatementText(selectedTenant, statementMode, statementYears);
+                        if (includeOwnedApts) {
+                          const ownedText = buildOwnedAptsDebtsText(selectedTenant);
+                          if (ownedText) text += '\n\n' + ownedText;
+                        }
+                        setTenantMsgText(t => (t.trim() ? t.trim() + '\n\n' : '') + text);
+                      }}
+                      className="text-xs border border-sky-200 rounded-full px-3 py-1.5 text-sky-700 hover:bg-sky-50 transition flex items-center gap-1 disabled:opacity-40">
+                      <FileText size={12} /> הוסף להודעה
+                    </button>
+                    {statementYears.size === 0 && <p className="text-xs text-orange-500">בחרי לפחות שנה אחת</p>}
+                  </>
                 );
               })()}
             </div>
@@ -2846,26 +2782,19 @@ export default function App() {
             )}
             <div className="flex gap-2 mt-4 justify-end">
               <button onClick={() => { setShowTenantMsg(false); setSendResult(null); }} className="border px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">ביטול</button>
-              <button disabled={isSending || isGeneratingPdf || !tenantMsgText.trim() || !selectedTenant?.email || (attachPdf && statementYears.size === 0)}
+              <button disabled={isSending || !tenantMsgText.trim() || !selectedTenant?.email}
                 onClick={async () => {
+                  setIsSending(true);
                   setSendResult(null);
                   try {
-                    let pdfDataUri = null;
-                    if (attachPdf) {
-                      setIsGeneratingPdf(true);
-                      pdfDataUri = await generateStatementPdfDataUri(selectedTenant, statementYears, statementMode, includeOwnedApts);
-                      setIsGeneratingPdf(false);
-                    }
-                    setIsSending(true);
-                    await sendEmail(selectedTenant.email, tenantMsgSubject, tenantMsgText, pdfDataUri);
+                    await sendEmail(selectedTenant.email, tenantMsgSubject, tenantMsgText);
                     setSendResult({ ok: true, msg: `נשלח בהצלחה ל-${selectedTenant.name}!` });
                     setTimeout(() => { setShowTenantMsg(false); setTenantMsgText(''); setTenantMsgSubject(''); setSendResult(null); }, 1500);
                   } catch { setSendResult({ ok: false, msg: 'שגיאה בשליחה — בדקי הגדרות מייל' }); }
-                  setIsGeneratingPdf(false);
                   setIsSending(false);
                 }}
                 className="bg-sky-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-sky-700 transition flex items-center gap-1 disabled:opacity-50">
-                {isGeneratingPdf ? 'מכין PDF...' : isSending ? 'שולח...' : <><Mail size={14} /> שלח</>}
+                {isSending ? 'שולח...' : <><Mail size={14} /> שלח</>}
               </button>
             </div>
           </div>
