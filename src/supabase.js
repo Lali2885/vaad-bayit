@@ -9,8 +9,6 @@ export const supabase = createClient(
       headers: {
         'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
       },
-      // keepalive: מאפשר לבקשת שמירה להשלים גם אם הטאב נסגר/עובר רקע ממש באותו רגע
-      fetch: (url, options = {}) => fetch(url, { ...options, keepalive: true }),
     }
   }
 );

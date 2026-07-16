@@ -702,7 +702,7 @@ export default function App() {
         }
       } finally { pendingWritesRef.current--; }
     };
-    // כשעוזבים את הטאב/סוגרים אותו לפני שה-800ms חלפו, flush מיידי (עם keepalive fetch) שולח את השמירה בכל זאת
+    // כשעוזבים את הטאב/סוגרים אותו לפני שה-800ms חלפו, flush מיידי שולח את השמירה עכשיו במקום לחכות ל-timeout
     const t = setTimeout(doSave, 800);
     pendingTenantsFlushRef.current = () => { clearTimeout(t); doSave(); };
     return () => { clearTimeout(t); pendingTenantsFlushRef.current = null; };
