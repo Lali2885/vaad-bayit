@@ -21,3 +21,7 @@ create policy "own tenants" on app_tenants for all
 
 create policy "own settings" on app_settings for all
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- נדרש כדי שסנכרון בזמן אמת בין טאבים/מכשירים (postgres_changes ב-App.jsx) יעבוד
+alter publication supabase_realtime add table app_tenants;
+alter publication supabase_realtime add table app_settings;

@@ -527,6 +527,10 @@ export default function App() {
   const pendingWritesRef = useRef(0);
   const tenantsRef = useRef(null);
   const settingsRef = useRef(null);
+  const lastSyncedTenantsRef = useRef(null);
+  const lastSyncedSettingsRef = useRef(null);
+  const pendingTenantsFlushRef = useRef(null);
+  const pendingSettingsFlushRef = useRef(null);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
@@ -572,8 +576,7 @@ export default function App() {
     const cacheKeyT = `vaad_tenants_${session.user.id}`;
     const cacheKeyS = `vaad_settings_${session.user.id}`;
     let hasCache = false;
-    let cachedTenantsSnapshot = null;
-    let cachedSettingsSnapshot = null;
+    let cachedTenantsSnapshot, cachedSettingsSnapshot;
     try {
       const ct = localStorage.getItem(cacheKeyT);
       const cs = localStorage.getItem(cacheKeyS);
@@ -584,6 +587,8 @@ export default function App() {
         cachedSettingsSnapshot = JSON.parse(cs);
         tenantsRef.current = cachedTenantsSnapshot;
         settingsRef.current = cachedSettingsSnapshot;
+        lastSyncedTenantsRef.current = cachedTenantsSnapshot;
+        lastSyncedSettingsRef.current = cachedSettingsSnapshot;
         setTenants(cachedTenantsSnapshot); setSettings(cachedSettingsSnapshot); hasCache = true;
       }
     } catch (e) {}
@@ -636,7 +641,7 @@ export default function App() {
       // אם המשתמשת כבר ערכה נתונים (tenantsRef השתנה) בזמן שחיכינו לתשובה מהשרת — לא לדרוס
       // את העריכה המקומית; השמירה האוטומטית המושהית תשמור אותה, וההתאמה האוטומטית
       // (הוספת חודש חדש וכו') תתבצע בטעינה הבאה במקום לגרום לאובדן נתונים עכשיו.
-      const tenantsEditedDuringLoad = hasCache && tenantsRef.current !== cachedTenantsSnapshot;
+      const tenantsEditedDuringLoad = hasCache && tenantsRef.current !== lastSyncedTenantsRef.current;
       if (!tenantsEditedDuringLoad) {
         if (anyAdded || !tenantsRes.data) {
           supabase.from('app_tenants')
@@ -644,6 +649,7 @@ export default function App() {
             .then(({ error }) => { if (error) setDbError(`שגיאת שמירה: ${error.message} (${error.code})`); });
         }
         skipTenantsSaveRef.current = true;
+        lastSyncedTenantsRef.current = loadedTenants;
         setTenants(loadedTenants);
         try { localStorage.setItem(cacheKeyT, JSON.stringify(loadedTenants)); } catch (e) {}
       }
@@ -666,9 +672,10 @@ export default function App() {
       }
 
       // אותה הגנה עבור settings: לא לדרוס עריכה מקומית שנעשתה בזמן הטעינה
-      const settingsEditedDuringLoad = hasCache && settingsRef.current !== cachedSettingsSnapshot;
+      const settingsEditedDuringLoad = hasCache && settingsRef.current !== lastSyncedSettingsRef.current;
       if (!settingsEditedDuringLoad) {
         skipSettingsSaveRef.current = true;
+        lastSyncedSettingsRef.current = loadedSettings;
         setSettings(loadedSettings);
         try { localStorage.setItem(cacheKeyS, JSON.stringify(loadedSettings)); } catch (e) {}
       }
@@ -679,35 +686,94 @@ export default function App() {
   useEffect(() => {
     if (!session || !tenants) return;
     if (skipTenantsSaveRef.current) { skipTenantsSaveRef.current = false; return; }
-    const t = setTimeout(async () => {
+    let fired = false;
+    const doSave = async () => {
+      if (fired) return;
+      fired = true;
       pendingWritesRef.current++;
       try {
         const { error } = await supabase.from('app_tenants')
           .update({ data: tenants })
           .eq('user_id', session.user.id);
         if (error) setDbError(`שגיאת שמירת דיירים: ${error.message} (${error.code})`);
-        else try { localStorage.setItem(`vaad_tenants_${session.user.id}`, JSON.stringify(tenants)); } catch (e) {}
+        else {
+          lastSyncedTenantsRef.current = tenants;
+          try { localStorage.setItem(`vaad_tenants_${session.user.id}`, JSON.stringify(tenants)); } catch (e) {}
+        }
       } finally { pendingWritesRef.current--; }
-    }, 800);
-    return () => clearTimeout(t);
+    };
+    // כשעוזבים את הטאב/סוגרים אותו לפני שה-800ms חלפו, flush מיידי (עם keepalive fetch) שולח את השמירה בכל זאת
+    const t = setTimeout(doSave, 800);
+    pendingTenantsFlushRef.current = () => { clearTimeout(t); doSave(); };
+    return () => { clearTimeout(t); pendingTenantsFlushRef.current = null; };
   }, [tenants, session]);
 
   useEffect(() => {
     if (!session || !settings) return;
     if (skipSettingsSaveRef.current) { skipSettingsSaveRef.current = false; return; }
-    const t = setTimeout(async () => {
+    let fired = false;
+    const doSave = async () => {
+      if (fired) return;
+      fired = true;
       pendingWritesRef.current++;
       try {
         const { error } = await supabase.from('app_settings')
           .update({ data: settings })
           .eq('user_id', session.user.id);
         if (error) setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`);
-        else try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settings)); } catch (e) {}
+        else {
+          lastSyncedSettingsRef.current = settings;
+          try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settings)); } catch (e) {}
+        }
       } finally { pendingWritesRef.current--; }
-    }, 800);
-    return () => clearTimeout(t);
+    };
+    const t = setTimeout(doSave, 800);
+    pendingSettingsFlushRef.current = () => { clearTimeout(t); doSave(); };
+    return () => { clearTimeout(t); pendingSettingsFlushRef.current = null; };
   }, [settings, session]);
 
+  useEffect(() => {
+    const flushPending = () => {
+      if (pendingTenantsFlushRef.current) pendingTenantsFlushRef.current();
+      if (pendingSettingsFlushRef.current) pendingSettingsFlushRef.current();
+    };
+    const handleVisibility = () => { if (document.visibilityState === 'hidden') flushPending(); };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pagehide', flushPending);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pagehide', flushPending);
+    };
+  }, []);
+
+  // סנכרון בזמן אמת בין טאבים/מכשירים: אם אין עריכה מקומית ממתינה (tenantsRef עדיין שווה
+  // ל-lastSyncedTenantsRef), מיישמים מיד עדכון שהגיע מטאב/מכשיר אחר. אם יש עריכה מקומית
+  // ממתינה - מדלגים כדי לא לדרוס אותה; היא תישמר כרגיל ותעדכן את שאר הטאבים בתורה.
+  useEffect(() => {
+    if (!session) return;
+    const channel = supabase
+      .channel(`vaad-sync-${session.user.id}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_tenants', filter: `user_id=eq.${session.user.id}` }, (payload) => {
+        const incoming = payload.new?.data;
+        if (!incoming) return;
+        if (tenantsRef.current !== lastSyncedTenantsRef.current) return;
+        skipTenantsSaveRef.current = true;
+        lastSyncedTenantsRef.current = incoming;
+        setTenants(incoming);
+        try { localStorage.setItem(`vaad_tenants_${session.user.id}`, JSON.stringify(incoming)); } catch (e) {}
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_settings', filter: `user_id=eq.${session.user.id}` }, (payload) => {
+        const incoming = payload.new?.data;
+        if (!incoming) return;
+        if (settingsRef.current !== lastSyncedSettingsRef.current) return;
+        skipSettingsSaveRef.current = true;
+        lastSyncedSettingsRef.current = incoming;
+        setSettings(incoming);
+        try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(incoming)); } catch (e) {}
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [session]);
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -1253,6 +1319,7 @@ export default function App() {
       try {
         const { error } = await supabase.from('app_settings').update({ data: settingsData }).eq('user_id', session.user.id);
         if (error) { setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`); return; }
+        lastSyncedSettingsRef.current = settingsData;
         try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settingsData)); } catch (e) {}
       } finally { pendingWritesRef.current--; setIsSavingSettings(false); }
     }
