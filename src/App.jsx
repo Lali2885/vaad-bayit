@@ -525,6 +525,8 @@ export default function App() {
   const skipTenantsSaveRef = useRef(false);
   const skipSettingsSaveRef = useRef(false);
   const pendingWritesRef = useRef(0);
+  const tenantsRef = useRef(null);
+  const settingsRef = useRef(null);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
@@ -559,6 +561,9 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
+  useEffect(() => { tenantsRef.current = tenants; }, [tenants]);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
+
   useEffect(() => {
     if (!session) { dataLoadedForUser.current = null; return; }
     if (dataLoadedForUser.current === session.user.id) return;
@@ -567,13 +572,19 @@ export default function App() {
     const cacheKeyT = `vaad_tenants_${session.user.id}`;
     const cacheKeyS = `vaad_settings_${session.user.id}`;
     let hasCache = false;
+    let cachedTenantsSnapshot = null;
+    let cachedSettingsSnapshot = null;
     try {
       const ct = localStorage.getItem(cacheKeyT);
       const cs = localStorage.getItem(cacheKeyS);
       if (ct && cs) {
         skipTenantsSaveRef.current = true;
         skipSettingsSaveRef.current = true;
-        setTenants(JSON.parse(ct)); setSettings(JSON.parse(cs)); hasCache = true;
+        cachedTenantsSnapshot = JSON.parse(ct);
+        cachedSettingsSnapshot = JSON.parse(cs);
+        tenantsRef.current = cachedTenantsSnapshot;
+        settingsRef.current = cachedSettingsSnapshot;
+        setTenants(cachedTenantsSnapshot); setSettings(cachedSettingsSnapshot); hasCache = true;
       }
     } catch (e) {}
     if (!hasCache) setDataLoading(true);
@@ -622,14 +633,20 @@ export default function App() {
         return { ...tenant, payments: newPayments, ownerId };
       });
 
-      if (anyAdded || !tenantsRes.data) {
-        supabase.from('app_tenants')
-          .upsert({ user_id: session.user.id, data: loadedTenants, last_auto_month: autoKey }, { onConflict: 'user_id' })
-          .then(({ error }) => { if (error) setDbError(`שגיאת שמירה: ${error.message} (${error.code})`); });
+      // אם המשתמשת כבר ערכה נתונים (tenantsRef השתנה) בזמן שחיכינו לתשובה מהשרת — לא לדרוס
+      // את העריכה המקומית; השמירה האוטומטית המושהית תשמור אותה, וההתאמה האוטומטית
+      // (הוספת חודש חדש וכו') תתבצע בטעינה הבאה במקום לגרום לאובדן נתונים עכשיו.
+      const tenantsEditedDuringLoad = hasCache && tenantsRef.current !== cachedTenantsSnapshot;
+      if (!tenantsEditedDuringLoad) {
+        if (anyAdded || !tenantsRes.data) {
+          supabase.from('app_tenants')
+            .upsert({ user_id: session.user.id, data: loadedTenants, last_auto_month: autoKey }, { onConflict: 'user_id' })
+            .then(({ error }) => { if (error) setDbError(`שגיאת שמירה: ${error.message} (${error.code})`); });
+        }
+        skipTenantsSaveRef.current = true;
+        setTenants(loadedTenants);
+        try { localStorage.setItem(cacheKeyT, JSON.stringify(loadedTenants)); } catch (e) {}
       }
-      skipTenantsSaveRef.current = true;
-      setTenants(loadedTenants);
-      try { localStorage.setItem(cacheKeyT, JSON.stringify(loadedTenants)); } catch (e) {}
 
       let loadedSettings;
       if (settingsRes.data) {
@@ -647,9 +664,14 @@ export default function App() {
         loadedSettings = INITIAL_SETTINGS;
         supabase.from('app_settings').upsert({ user_id: session.user.id, data: INITIAL_SETTINGS });
       }
-      skipSettingsSaveRef.current = true;
-      setSettings(loadedSettings);
-      try { localStorage.setItem(cacheKeyS, JSON.stringify(loadedSettings)); } catch (e) {}
+
+      // אותה הגנה עבור settings: לא לדרוס עריכה מקומית שנעשתה בזמן הטעינה
+      const settingsEditedDuringLoad = hasCache && settingsRef.current !== cachedSettingsSnapshot;
+      if (!settingsEditedDuringLoad) {
+        skipSettingsSaveRef.current = true;
+        setSettings(loadedSettings);
+        try { localStorage.setItem(cacheKeyS, JSON.stringify(loadedSettings)); } catch (e) {}
+      }
       setDataLoading(false);
     });
   }, [session]);
