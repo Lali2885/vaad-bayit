@@ -529,8 +529,6 @@ export default function App() {
   const settingsRef = useRef(null);
   const lastSyncedTenantsRef = useRef(null);
   const lastSyncedSettingsRef = useRef(null);
-  const pendingTenantsFlushRef = useRef(null);
-  const pendingSettingsFlushRef = useRef(null);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
@@ -646,7 +644,8 @@ export default function App() {
         if (anyAdded || !tenantsRes.data) {
           supabase.from('app_tenants')
             .upsert({ user_id: session.user.id, data: loadedTenants, last_auto_month: autoKey }, { onConflict: 'user_id' })
-            .then(({ error }) => { if (error) setDbError(`שגיאת שמירה: ${error.message} (${error.code})`); });
+            .then(({ error }) => { if (error) setDbError(`שגיאת שמירה: ${error.message} (${error.code})`); })
+            .catch((e) => setDbError(`שגיאת שמירה (בעיית חיבור): ${e.message}`));
         }
         skipTenantsSaveRef.current = true;
         lastSyncedTenantsRef.current = loadedTenants;
@@ -683,68 +682,43 @@ export default function App() {
     });
   }, [session]);
 
+  // שמירה מיידית בכל שינוי (כמו ב-super-off) - בלי debounce, כדי שלא יצטברו כמה עריכות
+  // בלי שמירה ויאבדו יחד אם השמירה הסופית נכשלת (רשת לא יציבה וכו')
   useEffect(() => {
     if (!session || !tenants) return;
     if (skipTenantsSaveRef.current) { skipTenantsSaveRef.current = false; return; }
-    let fired = false;
-    const doSave = async () => {
-      if (fired) return;
-      fired = true;
+    (async () => {
       pendingWritesRef.current++;
       try {
         const { error } = await supabase.from('app_tenants')
           .update({ data: tenants })
           .eq('user_id', session.user.id);
-        if (error) setDbError(`שגיאת שמירת דיירים: ${error.message} (${error.code})`);
-        else {
-          lastSyncedTenantsRef.current = tenants;
-          try { localStorage.setItem(`vaad_tenants_${session.user.id}`, JSON.stringify(tenants)); } catch (e) {}
-        }
+        if (error) { setDbError(`שגיאת שמירת דיירים: ${error.message} (${error.code})`); return; }
+        lastSyncedTenantsRef.current = tenants;
+        try { localStorage.setItem(`vaad_tenants_${session.user.id}`, JSON.stringify(tenants)); } catch (e) {}
+      } catch (e) {
+        setDbError(`השמירה נכשלה (בעיית חיבור) - העדכון האחרון לא נשמר, בדקי חיבור לאינטרנט ונסי שוב: ${e.message}`);
       } finally { pendingWritesRef.current--; }
-    };
-    // כשעוזבים את הטאב/סוגרים אותו לפני שה-800ms חלפו, flush מיידי שולח את השמירה עכשיו במקום לחכות ל-timeout
-    const t = setTimeout(doSave, 800);
-    pendingTenantsFlushRef.current = () => { clearTimeout(t); doSave(); };
-    return () => { clearTimeout(t); pendingTenantsFlushRef.current = null; };
+    })();
   }, [tenants, session]);
 
   useEffect(() => {
     if (!session || !settings) return;
     if (skipSettingsSaveRef.current) { skipSettingsSaveRef.current = false; return; }
-    let fired = false;
-    const doSave = async () => {
-      if (fired) return;
-      fired = true;
+    (async () => {
       pendingWritesRef.current++;
       try {
         const { error } = await supabase.from('app_settings')
           .update({ data: settings })
           .eq('user_id', session.user.id);
-        if (error) setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`);
-        else {
-          lastSyncedSettingsRef.current = settings;
-          try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settings)); } catch (e) {}
-        }
+        if (error) { setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`); return; }
+        lastSyncedSettingsRef.current = settings;
+        try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settings)); } catch (e) {}
+      } catch (e) {
+        setDbError(`השמירה נכשלה (בעיית חיבור) - העדכון האחרון לא נשמר, בדקי חיבור לאינטרנט ונסי שוב: ${e.message}`);
       } finally { pendingWritesRef.current--; }
-    };
-    const t = setTimeout(doSave, 800);
-    pendingSettingsFlushRef.current = () => { clearTimeout(t); doSave(); };
-    return () => { clearTimeout(t); pendingSettingsFlushRef.current = null; };
+    })();
   }, [settings, session]);
-
-  useEffect(() => {
-    const flushPending = () => {
-      if (pendingTenantsFlushRef.current) pendingTenantsFlushRef.current();
-      if (pendingSettingsFlushRef.current) pendingSettingsFlushRef.current();
-    };
-    const handleVisibility = () => { if (document.visibilityState === 'hidden') flushPending(); };
-    document.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('pagehide', flushPending);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('pagehide', flushPending);
-    };
-  }, []);
 
   // סנכרון בזמן אמת בין טאבים/מכשירים: אם אין עריכה מקומית ממתינה (tenantsRef עדיין שווה
   // ל-lastSyncedTenantsRef), מיישמים מיד עדכון שהגיע מטאב/מכשיר אחר. אם יש עריכה מקומית
@@ -1321,6 +1295,8 @@ export default function App() {
         if (error) { setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`); return; }
         lastSyncedSettingsRef.current = settingsData;
         try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settingsData)); } catch (e) {}
+      } catch (e) {
+        setDbError(`השמירה נכשלה (בעיית חיבור) - העדכון לא נשמר, בדקי חיבור לאינטרנט ונסי שוב: ${e.message}`);
       } finally { pendingWritesRef.current--; setIsSavingSettings(false); }
     }
     setSettingsSaved(true);
