@@ -212,6 +212,17 @@ function calcCredit(tenant) {
   return tenant.payments.filter(p => p.status === 'זכות').reduce((sum, p) => sum + (p.paidAmount || 0), 0);
 }
 
+function calcDebtByOccupant(tenant) {
+  const map = new Map();
+  const add = (occupantName, amount) => {
+    const key = occupantName || tenant.name || 'לא ידוע';
+    map.set(key, (map.get(key) || 0) + amount);
+  };
+  tenant.payments.filter(p => p.status === 'חוב').forEach(p => add(p.occupantName, p.amount - (p.paidAmount || 0)));
+  (tenant.charges || []).filter(c => c.status === 'חוב').forEach(c => add(c.occupantName, c.amount));
+  return [...map.entries()].filter(([, amount]) => amount > 0);
+}
+
 const EMPTY_TENANT = { name: '', apt: '', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 0, owner: '', ownerId: '', payments: [], charges: [], notes: '' };
 
 const HEB_DAYS = ['א','ב','ג','ד','ה','ו','ז','ח','ט','י','יא','יב','יג','יד','טו','טז','יז','יח','יט','כ','כא','כב','כג','כד','כה','כו','כז','כח','כט','ל'];
@@ -623,7 +634,7 @@ export default function App() {
         });
         monthsToFill.forEach((m, mIdx) => {
           if (!newPayments.some(p => p.hebrewMonth === m && p.hebrewYear === year)) {
-            newPayments.push({ id: baseId + tIdx * 100 + mIdx, hebrewMonth: m, hebrewYear: year, status: 'חוב', amount: tenant.monthlyRent, paidAmount: 0 });
+            newPayments.push({ id: baseId + tIdx * 100 + mIdx, hebrewMonth: m, hebrewYear: year, status: 'חוב', amount: tenant.monthlyRent, paidAmount: 0, occupantName: tenant.name });
             anyAdded = true;
           }
         });
@@ -1130,8 +1141,12 @@ export default function App() {
     const rows = sorted.map(t => {
       const debt = calcDebt(t);
       const credit = calcCredit(t);
+      const debtByOccupant = debt > 0 ? calcDebtByOccupant(t) : [];
       const statusHtml = debt > 0
-        ? `<span style="color:#dc2626;font-weight:bold">₪${debt.toLocaleString()} חוב</span>`
+        ? `<div style="color:#dc2626;font-weight:bold">₪${debt.toLocaleString()} חוב</div>`
+          + (debtByOccupant.length > 1
+            ? debtByOccupant.map(([name, amount]) => `<div style="font-size:11px;font-weight:normal;color:#991b1b">${name}: ₪${amount.toLocaleString()}</div>`).join('')
+            : '')
         : credit > 0
         ? `<span style="color:#16a34a;font-weight:bold">₪${credit.toLocaleString()} זכות</span>`
         : `<span style="color:#0d9488;font-weight:bold">מעודכן ✓</span>`;
@@ -1455,13 +1470,13 @@ export default function App() {
     const amount = Math.round(baseAmount * (Number(tenant?.feePercent || 100) / 100));
     const isFuture = isFutureMonth(month, year);
     const status = isFuture ? 'זכות' : 'חוב';
-    const newP = { id: Date.now(), hebrewMonth: month, hebrewYear: year, status, amount, paidAmount: isFuture ? amount : 0 };
+    const newP = { id: Date.now(), hebrewMonth: month, hebrewYear: year, status, amount, paidAmount: isFuture ? amount : 0, occupantName: tenant?.name || '' };
     setTenants(prev => prev.map(t => t.id === selectedId ? { ...t, payments: [...t.payments, newP] } : t));
   }
 
   function addPaymentRow() {
     const nextId = Math.max(0, ...editData.payments.map(p => p.id)) + 1;
-    setEditData(d => ({ ...d, payments: [...d.payments, { id: nextId, hebrewMonth: 'תשרי', hebrewYear: CURRENT_HEBREW_YEAR, status: 'חוב', amount: d.monthlyRent }] }));
+    setEditData(d => ({ ...d, payments: [...d.payments, { id: nextId, hebrewMonth: 'תשרי', hebrewYear: CURRENT_HEBREW_YEAR, status: 'חוב', amount: d.monthlyRent, occupantName: d.name }] }));
   }
 
   function addNewTenant() {
@@ -1915,6 +1930,7 @@ export default function App() {
                       <th className="pb-2 font-medium">לתשלום</th>
                       <th className="pb-2 font-medium">שולם</th>
                       <th className="pb-2 font-medium">חוב</th>
+                      <th className="pb-2 font-medium">שוכר</th>
                       <th className="pb-2 font-medium">הערה</th>
                       <th className="pb-2"></th>
                     </tr></thead>
@@ -1930,8 +1946,9 @@ export default function App() {
                               <td className="py-2 text-gray-300 text-xs">—</td>
                               <td className="py-2 text-gray-300 text-xs">—</td>
                               <td className="py-2 text-gray-300 text-xs">—</td>
+                              <td className="py-2 text-gray-300 text-xs">—</td>
                               <td className="py-2 text-left">
-                                <button onClick={() => setEditData(d => ({ ...d, payments: [...d.payments, { id: Date.now(), hebrewMonth: month, hebrewYear: filterYear, status: 'חוב', amount: d.monthlyRent }] }))}
+                                <button onClick={() => setEditData(d => ({ ...d, payments: [...d.payments, { id: Date.now(), hebrewMonth: month, hebrewYear: filterYear, status: 'חוב', amount: d.monthlyRent, occupantName: d.name }] }))}
                                   className="text-xs text-teal-500 hover:text-teal-700 border border-teal-200 hover:bg-teal-50 px-2 py-0.5 rounded-full transition">+ הוסף</button>
                               </td>
                             </tr>
@@ -1950,6 +1967,9 @@ export default function App() {
                               </td>
                               <td className="py-2 text-gray-300 text-xs">—</td>
                               <td className="py-2">
+                                <input value={p.occupantName ?? editData.name ?? ''} onChange={e => setEditData(d => ({...d, payments: d.payments.map((x,j) => j===i?{...x,occupantName:e.target.value}:x)}))} placeholder="שוכר..." className="border border-gray-200 rounded-lg px-2 py-1 text-xs bg-gray-50 hover:bg-white focus:border-teal-400 focus:outline-none w-20 transition" />
+                              </td>
+                              <td className="py-2">
                                 <input value={p.note || ''} onChange={e => setEditData(d => ({...d, payments: d.payments.map((x,j) => j===i?{...x,note:e.target.value}:x)}))} placeholder="הערה..." className="border border-gray-200 rounded-lg px-2 py-1 text-xs bg-gray-50 hover:bg-white focus:border-teal-400 focus:outline-none w-24 transition" />
                               </td>
                               <td className="py-2 text-left">
@@ -1961,6 +1981,7 @@ export default function App() {
                         if (!p) return (
                           <tr key={month} className="border-b bg-gray-50/40">
                             <td className="py-2 text-gray-400">{month}</td>
+                            <td className="py-2 text-gray-300 text-xs">—</td>
                             <td className="py-2 text-gray-300 text-xs">—</td>
                             <td className="py-2 text-gray-300 text-xs">—</td>
                             <td className="py-2 text-gray-300 text-xs">—</td>
@@ -2006,6 +2027,14 @@ export default function App() {
                                 : <span className={`font-semibold text-xs ${remaining > 0 ? 'text-red-500' : 'text-green-600'}`}>₪{remaining.toLocaleString()}</span>
                               }
                             </td>
+                            <td className="py-2">
+                              <input
+                                value={p.occupantName ?? selectedTenant.name ?? ''}
+                                onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, payments: t.payments.map(x => x.id !== p.id ? x : { ...x, occupantName: e.target.value }) }))}
+                                placeholder="שוכר..."
+                                className="border border-gray-200 rounded-lg px-2 py-1 text-xs bg-gray-50 hover:bg-white focus:border-teal-400 focus:outline-none focus:bg-white text-gray-600 w-20 transition"
+                              />
+                            </td>
                             <td className="py-2 pl-4">
                               <input
                                 value={p.note || ''}
@@ -2042,7 +2071,7 @@ export default function App() {
                   <div className="flex justify-between items-center mb-4">
                     <h4 className="font-bold text-base text-teal-800">חיובים נוספים / חד-פעמיים</h4>
                     <button onClick={() => {
-                      const newCharge = { id: Date.now(), description: '', amount: 0, status: 'חוב', note: '' };
+                      const newCharge = { id: Date.now(), description: '', amount: 0, status: 'חוב', note: '', occupantName: selectedTenant?.name || '' };
                       setTenants(prev => prev.map(t => t.id === selectedId ? { ...t, charges: [...(t.charges||[]), newCharge] } : t));
                     }} className="flex items-center gap-1 text-teal-700 hover:text-teal-800 text-sm font-bold">
                       <Plus size={14} /> הוסף חיוב
@@ -2053,6 +2082,7 @@ export default function App() {
                     : <div className="overflow-x-auto"><table className="w-full text-sm text-right">
                         <thead><tr className="border-b text-gray-400 text-xs">
                           <th className="pb-2 font-medium">תיאור</th>
+                          <th className="pb-2 font-medium">שוכר</th>
                           <th className="pb-2 font-medium">הערה</th>
                           <th className="pb-2 font-medium">סכום</th>
                           <th className="pb-2 font-medium">סטטוס</th>
@@ -2064,6 +2094,10 @@ export default function App() {
                               <td className="py-2">
                                 <input value={c.description} onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,description:e.target.value} : x) }))}
                                   placeholder="תיאור החיוב" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full" />
+                              </td>
+                              <td className="py-2">
+                                <input value={c.occupantName ?? selectedTenant.name ?? ''} onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,occupantName:e.target.value} : x) }))}
+                                  placeholder="שוכר" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
                               </td>
                               <td className="py-2">
                                 <input value={c.note} onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,note:e.target.value} : x) }))}
@@ -2102,6 +2136,7 @@ export default function App() {
                       <table className="w-full text-sm text-right mb-4">
                         <thead><tr className="border-b text-gray-400 text-xs">
                           <th className="pb-2 font-medium">תיאור</th>
+                          <th className="pb-2 font-medium">שוכר</th>
                           <th className="pb-2 font-medium">סכום</th>
                           <th className="pb-2 font-medium">סטטוס</th>
                           <th className="pb-2"></th>
@@ -2110,6 +2145,10 @@ export default function App() {
                           {(selectedTenant.charges || []).filter(c => c.expenseId).map(c => (
                             <tr key={c.id} className="border-b group">
                               <td className="py-2 text-sm text-gray-700">{c.description || 'הוצאה חריגה'}</td>
+                              <td className="py-2">
+                                <input value={c.occupantName ?? selectedTenant.name ?? ''} onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,occupantName:e.target.value} : x) }))}
+                                  placeholder="שוכר" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20 text-gray-700" />
+                              </td>
                               <td className="py-2 font-medium text-gray-800">₪{(c.amount||0).toLocaleString()}</td>
                               <td className="py-2">
                                 <button onClick={() => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,status:x.status==='שולם'?'חוב':'שולם'} : x) }))}
@@ -2139,7 +2178,7 @@ export default function App() {
                               <span className="text-xs font-semibold text-teal-600">₪{(exp.perTenantAmount||0).toLocaleString()} לדייר</span>
                             </div>
                             <button onClick={() => {
-                              const newCharge = { id: Date.now(), description: exp.description, amount: exp.perTenantAmount, status: 'חוב', note: '', expenseId: exp.id };
+                              const newCharge = { id: Date.now(), description: exp.description, amount: exp.perTenantAmount, status: 'חוב', note: '', expenseId: exp.id, occupantName: selectedTenant?.name || '' };
                               setTenants(prev => prev.map(t => t.id === selectedId ? { ...t, charges: [...(t.charges||[]), newCharge] } : t));
                             }} className="text-xs text-teal-700 border border-teal-200 hover:bg-teal-50 px-3 py-1.5 rounded-full font-medium transition whitespace-nowrap">
                               משוך לדייר
@@ -2483,7 +2522,7 @@ export default function App() {
                                           if (!confirm(`לשלוף "${exp.description||'הוצאה חריגה'}" (₪${(exp.perTenantAmount||0).toLocaleString()}) לכל הדיירים?`)) return;
                                           setTenants(prev => prev.map((t,i) =>
                                             (t.charges||[]).some(c => c.expenseId===exp.id) ? t : {
-                                              ...t, charges: [...(t.charges||[]), { id: Date.now()+i, description: exp.description, amount: exp.perTenantAmount, status: 'חוב', note: '', expenseId: exp.id }]
+                                              ...t, charges: [...(t.charges||[]), { id: Date.now()+i, description: exp.description, amount: exp.perTenantAmount, status: 'חוב', note: '', expenseId: exp.id, occupantName: t.name }]
                                             }
                                           ));
                                         }} className="text-xs text-teal-600 border border-teal-200 hover:bg-teal-50 px-2 py-1 rounded-full font-medium transition whitespace-nowrap">
@@ -3043,7 +3082,7 @@ export default function App() {
                 if (selectedTenantIds.size === 0) return;
                 setTenants(prev => prev.map((t, i) =>
                   selectedTenantIds.has(t.id) && !(t.charges||[]).some(c => c.expenseId===selectExpModal.expId)
-                    ? { ...t, charges: [...(t.charges||[]), { id: Date.now()+i, description: selectExpModal.description, amount: selectExpModal.perTenantAmount, status: 'חוב', note: '', expenseId: selectExpModal.expId }] }
+                    ? { ...t, charges: [...(t.charges||[]), { id: Date.now()+i, description: selectExpModal.description, amount: selectExpModal.perTenantAmount, status: 'חוב', note: '', expenseId: selectExpModal.expId, occupantName: t.name }] }
                     : t
                 ));
                 setSelectExpModal(null);
