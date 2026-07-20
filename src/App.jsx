@@ -1218,7 +1218,6 @@ export default function App() {
     for (let i = 0; i < sorted.length; i += slotsPerPage) pages.push(sorted.slice(i, i + slotsPerPage));
 
     const slipHtml = (t) => {
-      const debt = calcDebt(t);
       const amount = Number(t.monthlyRent) || 0;
       const curPayment = (t.payments || []).find(p => p.hebrewMonth === curMonth && p.hebrewYear === curYear);
       const paidThisMonth = curPayment && curPayment.status === 'שולם';
@@ -1237,12 +1236,12 @@ export default function App() {
       const prevMonthsDebt = (t.payments || [])
         .filter(p => p.status === 'חוב' && isCurrentOccupant(p) && !(p.hebrewMonth === curMonth && p.hebrewYear === curYear))
         .reduce((s, p) => s + p.amount - (p.paidAmount || 0), 0);
-      const otherOccupantsDebt = calcDebtByOccupant(t).filter(([name]) => name !== t.name).sort((a, b) => b[1] - a[1]);
+      const chargesDebtTotal = Object.values(chargeDebtsByDesc).reduce((s, a) => s + a, 0);
+      const debt = currentMonthDebt + chargesDebtTotal + prevMonthsDebt;
       const debtDetailLines = [
         ...(currentMonthDebt > 0 ? [`₪${currentMonthDebt.toLocaleString()} – חודש ${curMonth} ${curYear} (החודש הנוכחי)`] : []),
         ...Object.entries(chargeDebtsByDesc).map(([desc, amt]) => `₪${amt.toLocaleString()} – ${desc}`),
         ...(prevMonthsDebt > 0 ? [`₪${prevMonthsDebt.toLocaleString()} – תשלומים חודשיים קודמים (ניתן לקבל פירוט מלא במייל)`] : []),
-        ...otherOccupantsDebt.map(([name, amt]) => `₪${amt.toLocaleString()} – חוב משוכר קודם: ${name}`),
       ];
 
       return `
