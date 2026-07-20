@@ -824,9 +824,53 @@ export default function App() {
     return { yearsData, totalPaid, totalDebtAmt };
   }
 
+  function getTenantStatementDataByOccupant(tenant, years) {
+    const expenseYearMap = new Map((settings.extraordinaryExpenses || []).map(e => [e.id, e.hebrewYear]));
+    const monthRank = m => TWELVE_MONTHS.indexOf(m);
+    const yearRank = y => HEBREW_YEAR_TO_NUMERIC[y] || 0;
+
+    const debtPayments = tenant.payments.filter(p => years.has(p.hebrewYear) && p.status === 'חוב' && (p.amount - (p.paidAmount || 0)) > 0);
+    const debtCharges = (tenant.charges || []).filter(c =>
+      c.expenseId && c.status === 'חוב' && years.has(expenseYearMap.get(c.expenseId)));
+
+    const occupantOf = x => x.occupantName || tenant.name;
+    const names = [...new Set([...debtPayments.map(occupantOf), ...debtCharges.map(occupantOf)])];
+
+    const occupantsData = names.map(name => {
+      const payments = debtPayments
+        .filter(p => occupantOf(p) === name)
+        .sort((a, b) => yearRank(a.hebrewYear) - yearRank(b.hebrewYear) || monthRank(a.hebrewMonth) - monthRank(b.hebrewMonth));
+      const charges = debtCharges.filter(c => occupantOf(c) === name);
+      const total = payments.reduce((s, p) => s + p.amount - (p.paidAmount || 0), 0) + charges.reduce((s, c) => s + c.amount, 0);
+      return { name, isCurrent: name === tenant.name, payments, charges, total };
+    }).sort((a, b) => (b.isCurrent - a.isCurrent) || b.total - a.total);
+
+    const totalDebtAmt = occupantsData.reduce((s, o) => s + o.total, 0);
+    return { occupantsData, totalDebtAmt };
+  }
+
   function buildTenantStatementText(tenant, mode = 'full', years) {
     const debtsOnly = mode === 'debtsOnly';
     const yearsToUse = years && years.size > 0 ? years : new Set(tenant.payments.map(p => p.hebrewYear));
+
+    if (mode === 'byOccupant') {
+      const { occupantsData, totalDebtAmt } = getTenantStatementDataByOccupant(tenant, yearsToUse);
+      const lines = ['פירוט חובות לפי שוכר:', ''];
+      if (occupantsData.length === 0) {
+        lines.push('✓ אין חובות פתוחים');
+      } else {
+        occupantsData.forEach(({ name, isCurrent, payments, charges, total }) => {
+          lines.push(`${name}${isCurrent ? ' (שוכר נוכחי)' : ' (שוכר קודם)'}:`);
+          payments.forEach(p => lines.push(`    ועד בית — ${p.hebrewMonth} ${p.hebrewYear}: ₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}${p.note ? ' — ' + p.note : ''}`));
+          charges.forEach(c => lines.push(`    ${c.description || 'הוצאה חריגה'}: ₪${c.amount.toLocaleString()}${c.note ? ' — ' + c.note : ''}`));
+          lines.push(`  סה"כ חוב — ${name}: ₪${total.toLocaleString()}`);
+          lines.push('');
+        });
+      }
+      lines.push(`יתרת חוב לתשלום: ₪${totalDebtAmt.toLocaleString()}`);
+      return lines.join('\n');
+    }
+
     const { yearsData, totalPaid, totalDebtAmt } = getTenantStatementData(tenant, yearsToUse);
 
     const lines = [debtsOnly ? 'פירוט חובות:' : 'פירוט תשלומים וחובות:', ''];
@@ -918,24 +962,56 @@ export default function App() {
   `).join('');
   }
 
+  function renderOccupantsBlocksHtml(occupantsData) {
+    if (occupantsData.length === 0) return `<p class="empty" style="color:#16a34a">✓ אין חובות פתוחים</p>`;
+    return occupantsData.map(({ name, isCurrent, payments, charges, total }) => `
+  <div class="year-block">
+    <div class="year-title">${name}${isCurrent ? ' (שוכר נוכחי)' : ' (שוכר קודם)'}</div>
+    <table>
+      <thead><tr><th>תיאור</th><th>סכום לתשלום</th><th>הערות</th></tr></thead>
+      <tbody>
+        ${payments.map(p => `<tr>
+          <td>ועד בית — ${p.hebrewMonth} ${p.hebrewYear}</td>
+          <td class="debt">₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}</td>
+          <td>${p.note || ''}</td>
+        </tr>`).join('')}
+        ${charges.map(c => `<tr>
+          <td>${c.description || 'הוצאה חריגה'}</td>
+          <td class="debt">₪${c.amount.toLocaleString()}</td>
+          <td>${c.note || ''}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="year-subtotal">סה"כ חוב — ${name}: <span class="debt">₪${total.toLocaleString()}</span></div>
+  </div>
+  `).join('');
+  }
+
   function buildTenantStatementHtml(tenant, years, mode = 'full', includeOwned = false) {
     const debtsOnly = mode === 'debtsOnly';
+    const byOccupant = mode === 'byOccupant';
     const { month: curMonth, year: curYear } = getCurrentHebrewDate();
     const logoSrc = settings.logo;
 
-    const { yearsData, totalPaid, totalDebtAmt } = getTenantStatementData(tenant, years);
+    const mainData = byOccupant ? getTenantStatementDataByOccupant(tenant, years) : getTenantStatementData(tenant, years);
+    const totalPaid = byOccupant ? 0 : mainData.totalPaid;
+    const totalDebtAmt = mainData.totalDebtAmt;
+    const bodyHtml = byOccupant ? renderOccupantsBlocksHtml(mainData.occupantsData) : renderYearsBlocksHtml(mainData.yearsData, debtsOnly);
+
     const ownedApts = includeOwned ? getOwnedApartments(tenant.id) : [];
     const ownedSections = ownedApts.map(apt => {
       const aptYears = new Set(apt.payments.map(p => p.hebrewYear));
-      const { yearsData: aptYearsData, totalPaid: aptPaid, totalDebtAmt: aptDebt } = getTenantStatementData(apt, aptYears);
-      return { apt, aptYearsData, aptPaid, aptDebt };
+      const aptData = byOccupant ? getTenantStatementDataByOccupant(apt, aptYears) : getTenantStatementData(apt, aptYears);
+      const aptBodyHtml = byOccupant ? renderOccupantsBlocksHtml(aptData.occupantsData) : renderYearsBlocksHtml(aptData.yearsData, debtsOnly);
+      const aptPaid = byOccupant ? 0 : aptData.totalPaid;
+      return { apt, aptBodyHtml, aptPaid, aptDebt: aptData.totalDebtAmt };
     });
 
     const html = `<!DOCTYPE html>
 <html dir="rtl" lang="he">
 <head>
   <meta charset="UTF-8">
-  <title>${debtsOnly ? 'פירוט חובות' : 'פירוט תשלומים'} — ${tenant.name}</title>
+  <title>${debtsOnly || byOccupant ? 'פירוט חובות' : 'פירוט תשלומים'} — ${tenant.name}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, sans-serif; padding: 48px 56px; color: #111; background: #fff; direction: rtl; }
@@ -983,7 +1059,7 @@ export default function App() {
     <div class="header-title">
       <h1>משפחת ${tenant.name} היקרה,</h1>
       <p class="apt-label">דירה ${tenant.apt}</p>
-      <p>להלן פירוט ${debtsOnly ? 'החובות' : 'התשלומים'} שלכם נכון לחודש ${curMonth} ${curYear}</p>
+      <p>להלן פירוט ${debtsOnly || byOccupant ? 'החובות' : 'התשלומים'}${byOccupant ? ' מפוצל לפי שוכר' : ''} שלכם נכון לחודש ${curMonth} ${curYear}</p>
     </div>
     <div class="header-info">
       ${logoSrc
@@ -992,10 +1068,10 @@ export default function App() {
     </div>
   </div>
 
-  ${renderYearsBlocksHtml(yearsData, debtsOnly)}
+  ${bodyHtml}
 
   <div class="summary">
-    ${debtsOnly ? '' : `<div class="summary-row"><span>סה"כ שולם</span><span class="paid">₪${totalPaid.toLocaleString()}</span></div>`}
+    ${debtsOnly || byOccupant ? '' : `<div class="summary-row"><span>סה"כ שולם</span><span class="paid">₪${totalPaid.toLocaleString()}</span></div>`}
     <div class="summary-row summary-total"><span>יתרת חוב לתשלום</span><span>₪${totalDebtAmt.toLocaleString()}</span></div>
   </div>
 
@@ -1003,12 +1079,12 @@ export default function App() {
   <div style="margin-top: 44px; padding-top: 26px; border-top: 3px solid #d97706;">
     <h2 style="font-size: 18px; font-weight: bold; color: #b45309; margin-bottom: 4px;">דירות מושכרות בבעלותך</h2>
     <p style="font-size: 12px; color: #92400e; margin-bottom: 18px;">חובת התשלום עבור הדירות הבאות חלה עלייך כבעל/ת הדירה</p>
-    ${ownedSections.map(({ apt, aptYearsData, aptPaid, aptDebt }) => `
+    ${ownedSections.map(({ apt, aptBodyHtml, aptPaid, aptDebt }) => `
     <div style="margin-bottom: 30px;">
       <div style="font-size: 15px; font-weight: bold; color: #92400e; background: #fffbeb; border-right: 4px solid #d97706; border-radius: 6px; padding: 8px 14px; margin-bottom: 8px;">דירה ${apt.apt} — ${apt.name}</div>
-      ${renderYearsBlocksHtml(aptYearsData, debtsOnly)}
+      ${aptBodyHtml}
       <div class="summary" style="margin-top: 12px;">
-        ${debtsOnly ? '' : `<div class="summary-row"><span>סה"כ שולם</span><span class="paid">₪${aptPaid.toLocaleString()}</span></div>`}
+        ${debtsOnly || byOccupant ? '' : `<div class="summary-row"><span>סה"כ שולם</span><span class="paid">₪${aptPaid.toLocaleString()}</span></div>`}
         <div class="summary-row summary-total" style="color: ${aptDebt > 0 ? '#dc2626' : '#16a34a'};"><span>יתרת חוב לתשלום</span><span>₪${aptDebt.toLocaleString()}</span></div>
       </div>
     </div>
@@ -2934,6 +3010,12 @@ export default function App() {
                     onChange={() => setStatementMode('debtsOnly')}
                     className="w-4 h-4 accent-indigo-600" />
                   <span className="text-sm font-medium text-gray-700">חובות בלבד</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 py-2 px-2 rounded-lg border border-gray-200">
+                  <input type="radio" name="statementMode" checked={statementMode === 'byOccupant'}
+                    onChange={() => setStatementMode('byOccupant')}
+                    className="w-4 h-4 accent-indigo-600" />
+                  <span className="text-sm font-medium text-gray-700">חובות בלבד — מפוצל לפי שוכר</span>
                 </label>
               </div>
 
