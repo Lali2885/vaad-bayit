@@ -223,6 +223,19 @@ function calcDebtByOccupant(tenant) {
   return [...map.entries()].filter(([, amount]) => amount > 0);
 }
 
+function getOccupantNames(tenant) {
+  return [...new Set([
+    ...tenant.payments.map(p => p.occupantName || tenant.name),
+    ...(tenant.charges || []).map(c => c.occupantName || tenant.name),
+  ])];
+}
+
+function filterTenantByOccupant(tenant, occupant) {
+  if (!occupant) return tenant;
+  const matches = x => (x.occupantName || tenant.name) === occupant;
+  return { ...tenant, payments: tenant.payments.filter(matches), charges: (tenant.charges || []).filter(matches) };
+}
+
 const EMPTY_TENANT = { name: '', apt: '', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 0, owner: '', ownerId: '', payments: [], charges: [], notes: '' };
 
 const HEB_DAYS = ['א','ב','ג','ד','ה','ו','ז','ח','ט','י','יא','יב','יג','יד','טו','טז','יז','יח','יט','כ','כא','כב','כג','כד','כה','כו','כז','כח','כט','ל'];
@@ -525,6 +538,7 @@ export default function App() {
   const [showStatementModal, setShowStatementModal] = useState(null);
   const [statementYears, setStatementYears] = useState(new Set());
   const [statementMode, setStatementMode] = useState('full');
+  const [statementOccupant, setStatementOccupant] = useState('');
   const [includeOwnedApts, setIncludeOwnedApts] = useState(false);
   const [filterYear, setFilterYear] = useState(CURRENT_HEBREW_YEAR);
   const [showTenantMsg, setShowTenantMsg] = useState(false);
@@ -849,12 +863,13 @@ export default function App() {
     return { occupantsData, totalDebtAmt };
   }
 
-  function buildTenantStatementText(tenant, mode = 'full', years) {
+  function buildTenantStatementText(tenant, mode = 'full', years, occupantFilter = '') {
     const debtsOnly = mode === 'debtsOnly';
-    const yearsToUse = years && years.size > 0 ? years : new Set(tenant.payments.map(p => p.hebrewYear));
+    const effTenant = filterTenantByOccupant(tenant, occupantFilter);
+    const yearsToUse = years && years.size > 0 ? years : new Set(effTenant.payments.map(p => p.hebrewYear));
 
     if (mode === 'byOccupant') {
-      const { occupantsData, totalDebtAmt } = getTenantStatementDataByOccupant(tenant, yearsToUse);
+      const { occupantsData, totalDebtAmt } = getTenantStatementDataByOccupant(effTenant, yearsToUse);
       const lines = ['פירוט חובות לפי שוכר:', ''];
       if (occupantsData.length === 0) {
         lines.push('✓ אין חובות פתוחים');
@@ -871,7 +886,7 @@ export default function App() {
       return lines.join('\n');
     }
 
-    const { yearsData, totalPaid, totalDebtAmt } = getTenantStatementData(tenant, yearsToUse);
+    const { yearsData, totalPaid, totalDebtAmt } = getTenantStatementData(effTenant, yearsToUse);
 
     const lines = [debtsOnly ? 'פירוט חובות:' : 'פירוט תשלומים וחובות:', ''];
 
@@ -987,21 +1002,24 @@ export default function App() {
   `).join('');
   }
 
-  function buildTenantStatementHtml(tenant, years, mode = 'full', includeOwned = false) {
+  function buildTenantStatementHtml(tenant, years, mode = 'full', includeOwned = false, occupantFilter = '') {
     const debtsOnly = mode === 'debtsOnly';
     const byOccupant = mode === 'byOccupant';
     const { month: curMonth, year: curYear } = getCurrentHebrewDate();
     const logoSrc = settings.logo;
+    const displayName = occupantFilter || tenant.name;
+    const effTenant = filterTenantByOccupant(tenant, occupantFilter);
 
-    const mainData = byOccupant ? getTenantStatementDataByOccupant(tenant, years) : getTenantStatementData(tenant, years);
+    const mainData = byOccupant ? getTenantStatementDataByOccupant(effTenant, years) : getTenantStatementData(effTenant, years);
     const totalPaid = byOccupant ? 0 : mainData.totalPaid;
     const totalDebtAmt = mainData.totalDebtAmt;
     const bodyHtml = byOccupant ? renderOccupantsBlocksHtml(mainData.occupantsData) : renderYearsBlocksHtml(mainData.yearsData, debtsOnly);
 
     const ownedApts = includeOwned ? getOwnedApartments(tenant.id) : [];
     const ownedSections = ownedApts.map(apt => {
-      const aptYears = new Set(apt.payments.map(p => p.hebrewYear));
-      const aptData = byOccupant ? getTenantStatementDataByOccupant(apt, aptYears) : getTenantStatementData(apt, aptYears);
+      const effApt = filterTenantByOccupant(apt, occupantFilter);
+      const aptYears = new Set(effApt.payments.map(p => p.hebrewYear));
+      const aptData = byOccupant ? getTenantStatementDataByOccupant(effApt, aptYears) : getTenantStatementData(effApt, aptYears);
       const aptBodyHtml = byOccupant ? renderOccupantsBlocksHtml(aptData.occupantsData) : renderYearsBlocksHtml(aptData.yearsData, debtsOnly);
       const aptPaid = byOccupant ? 0 : aptData.totalPaid;
       return { apt, aptBodyHtml, aptPaid, aptDebt: aptData.totalDebtAmt };
@@ -1011,7 +1029,7 @@ export default function App() {
 <html dir="rtl" lang="he">
 <head>
   <meta charset="UTF-8">
-  <title>${debtsOnly || byOccupant ? 'פירוט חובות' : 'פירוט תשלומים'} — ${tenant.name}</title>
+  <title>${debtsOnly || byOccupant ? 'פירוט חובות' : 'פירוט תשלומים'} — ${displayName}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, sans-serif; padding: 48px 56px; color: #111; background: #fff; direction: rtl; }
@@ -1057,7 +1075,7 @@ export default function App() {
 <body>
   <div class="header">
     <div class="header-title">
-      <h1>משפחת ${tenant.name} היקרה,</h1>
+      <h1>משפחת ${displayName} היקרה,</h1>
       <p class="apt-label">דירה ${tenant.apt}</p>
       <p>להלן פירוט ${debtsOnly || byOccupant ? 'החובות' : 'התשלומים'}${byOccupant ? ' מפוצל לפי שוכר' : ''} שלכם נכון לחודש ${curMonth} ${curYear}</p>
     </div>
@@ -1099,8 +1117,8 @@ export default function App() {
     return html;
   }
 
-  function printTenantStatement(tenant, years, mode = 'full', includeOwned = false) {
-    const html = buildTenantStatementHtml(tenant, years, mode, includeOwned);
+  function printTenantStatement(tenant, years, mode = 'full', includeOwned = false, occupantFilter = '') {
+    const html = buildTenantStatementHtml(tenant, years, mode, includeOwned, occupantFilter);
     const w = window.open('', '_blank');
     w.document.write(html);
     w.document.close();
@@ -2351,6 +2369,7 @@ export default function App() {
                       .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
                     setStatementYears(new Set(available));
                     setStatementMode('full');
+                    setStatementOccupant('');
                     setIncludeOwnedApts(false);
                     setShowStatementModal(selectedTenant);
                   }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
@@ -2364,6 +2383,7 @@ export default function App() {
                       .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
                     setStatementYears(new Set(available));
                     setStatementMode('full');
+                    setStatementOccupant('');
                     setIncludeOwnedApts(false);
                     setTenantMsgText('');
                     setShowTenantMsg(true);
@@ -2913,13 +2933,28 @@ export default function App() {
                   <input type="radio" name="msgStatementMode" checked={statementMode === 'debtsOnly'} onChange={() => setStatementMode('debtsOnly')} className="w-3.5 h-3.5 accent-sky-600" />
                   חובות בלבד
                 </label>
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input type="radio" name="msgStatementMode" checked={statementMode === 'byOccupant'} onChange={() => setStatementMode('byOccupant')} className="w-3.5 h-3.5 accent-sky-600" />
+                  חובות לפי שוכר
+                </label>
               </div>
               {(() => {
                 const availableYears = [...new Set(selectedTenant.payments.map(p => p.hebrewYear))]
                   .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
                 const ownedApts = getOwnedApartments(selectedTenant.id);
+                const occupantNames = getOccupantNames(selectedTenant);
                 return (
                   <>
+                    {occupantNames.length > 1 && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-gray-500 whitespace-nowrap">שוכר:</label>
+                        <select value={statementOccupant} onChange={e => setStatementOccupant(e.target.value)}
+                          className="border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-sky-400 flex-1">
+                          <option value="">כל השוכרים</option>
+                          {occupantNames.map(name => <option key={name} value={name}>{name}</option>)}
+                        </select>
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-2">
                       {availableYears.map(year => (
                         <label key={year} className="flex items-center gap-1 text-xs bg-white border rounded-full px-2 py-1 cursor-pointer">
@@ -2940,7 +2975,7 @@ export default function App() {
                     )}
                     <button type="button" disabled={statementYears.size === 0}
                       onClick={() => {
-                        let text = buildTenantStatementText(selectedTenant, statementMode, statementYears);
+                        let text = buildTenantStatementText(selectedTenant, statementMode, statementYears, statementOccupant);
                         if (includeOwnedApts) {
                           const ownedText = buildOwnedAptsDebtsText(selectedTenant);
                           if (ownedText) text += '\n\n' + ownedText;
@@ -2989,7 +3024,9 @@ export default function App() {
 
       {showStatementModal && (() => {
         const tenant = showStatementModal;
-        const availableYears = [...new Set(tenant.payments.map(p => p.hebrewYear))]
+        const occupantNames = getOccupantNames(tenant);
+        const effTenant = filterTenantByOccupant(tenant, statementOccupant);
+        const availableYears = [...new Set(effTenant.payments.map(p => p.hebrewYear))]
           .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
         const ownedApts = getOwnedApartments(tenant.id);
         return (
@@ -3019,10 +3056,21 @@ export default function App() {
                 </label>
               </div>
 
+              {occupantNames.length > 1 && (
+                <div className="mb-4">
+                  <p className="text-sm text-gray-500 mb-2">שוכר</p>
+                  <select value={statementOccupant} onChange={e => setStatementOccupant(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                    <option value="">כל השוכרים (מפוצל לפי שנים כרגיל)</option>
+                    {occupantNames.map(name => <option key={name} value={name}>{name}</option>)}
+                  </select>
+                </div>
+              )}
+
               <p className="text-sm text-gray-500 mb-2">בחרי שנים לכלול במסמך</p>
               <div className="space-y-1 mb-3 max-h-64 overflow-y-auto">
                 {availableYears.map(year => {
-                  const hasDebt = tenant.payments.some(p => p.hebrewYear === year && p.status === 'חוב' && (p.amount - (p.paidAmount || 0)) > 0);
+                  const hasDebt = effTenant.payments.some(p => p.hebrewYear === year && p.status === 'חוב' && (p.amount - (p.paidAmount || 0)) > 0);
                   return (
                     <label key={year} className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 py-2 px-2 rounded-lg">
                       <input type="checkbox"
@@ -3056,7 +3104,7 @@ export default function App() {
                 <button onClick={() => setShowStatementModal(null)} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">ביטול</button>
                 <button onClick={() => {
                   if (statementYears.size === 0) return;
-                  printTenantStatement(tenant, statementYears, statementMode, includeOwnedApts);
+                  printTenantStatement(tenant, statementYears, statementMode, includeOwnedApts, statementOccupant);
                   setShowStatementModal(null);
                 }} disabled={statementYears.size === 0}
                   className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-indigo-700 transition disabled:opacity-40 flex items-center justify-center gap-1">
