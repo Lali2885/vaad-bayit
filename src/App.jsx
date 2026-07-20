@@ -1041,21 +1041,23 @@ export default function App() {
     .header-logo { max-height: 150px; max-width: 300px; object-fit: contain; display: block; margin-bottom: 8px; background: #fff; }
     .year-block { margin-top: 26px; padding-top: 18px; border-top: 2px dashed #e2e8f0; }
     .year-block:first-of-type { margin-top: 6px; padding-top: 0; border-top: none; }
-    .year-title { font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; color: #111; background: #e6f0ef; border-right: 4px solid #0d9488; border-radius: 6px; padding: 8px 14px; margin-bottom: 6px; }
+    .year-title { font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; color: #111; background: #e6f0ef; border-right: 4px solid #0d9488; border-radius: 6px; padding: 8px 14px; margin-bottom: 6px; page-break-after: avoid; break-after: avoid; }
     .year-subtotal { font-size: 12px; color: #666; margin: 4px 2px 0; }
-    .section-title { font-size: 15px; font-weight: bold; color: #0f766e; margin: 16px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #ccfbf1; }
+    .section-title { font-size: 15px; font-weight: bold; color: #0f766e; margin: 16px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #ccfbf1; page-break-after: avoid; break-after: avoid; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
     th { background: #f0fdfa; color: #0f766e; padding: 9px 14px; text-align: right; font-weight: bold; border-bottom: 2px solid #0d9488; }
     td { padding: 8px 14px; border-bottom: 1px solid #e5e7eb; }
     tr:nth-child(even) td { background: #fafafa; }
     .paid { color: #16a34a; font-weight: 600; }
     .debt { color: #dc2626; font-weight: 600; }
     .empty { color: #999; font-size: 13px; padding: 10px 0; }
-    .summary { background: #f0fdfa; border: 1px solid #0d9488; border-radius: 10px; padding: 18px 20px; margin-top: 28px; }
+    .summary { background: #f0fdfa; border: 1px solid #0d9488; border-radius: 10px; padding: 18px 20px; margin-top: 28px; page-break-inside: avoid; break-inside: avoid; }
     .summary-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 14px; color: #444; }
     .summary-total { font-size: 17px; font-weight: bold; border-top: 1px solid #0d9488; margin-top: 10px; padding-top: 10px; color: ${totalDebtAmt > 0 ? '#dc2626' : '#16a34a'}; }
     .footer { margin-top: 40px; font-size: 11px; color: #aaa; text-align: center; }
-    @media print { body { padding: 20px 30px; } .year-block { break-inside: avoid; } }
+    @media print { body { padding: 20px 30px; } }
   </style>
   <script>
     window.addEventListener('load', function() {
