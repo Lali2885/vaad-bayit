@@ -1236,14 +1236,17 @@ export default function App() {
       const debt = calcDebt(t);
       const credit = calcCredit(t);
       const debtByOccupant = debt > 0 ? calcDebtByOccupant(t) : [];
-      const statusHtml = debt > 0
-        ? `<div style="color:#dc2626;font-weight:bold">₪${debt.toLocaleString()} חוב</div>`
-          + (debtByOccupant.length > 1
-            ? debtByOccupant.map(([name, amount]) => `<div style="font-size:11px;font-weight:normal;color:#991b1b">${name}: ₪${amount.toLocaleString()}</div>`).join('')
-            : '')
-        : credit > 0
-        ? `<span style="color:#16a34a;font-weight:bold">₪${credit.toLocaleString()} זכות</span>`
-        : `<span style="color:#0d9488;font-weight:bold">מעודכן ✓</span>`;
+      const statusParts = [];
+      if (debt > 0) {
+        statusParts.push(`<div style="color:#dc2626;font-weight:bold">₪${debt.toLocaleString()} חוב</div>`);
+        if (debtByOccupant.length > 1) {
+          statusParts.push(debtByOccupant.map(([name, amount]) => `<div style="font-size:11px;font-weight:normal;color:#991b1b">${name}: ₪${amount.toLocaleString()}</div>`).join(''));
+        }
+      }
+      if (credit > 0) {
+        statusParts.push(`<div style="color:#16a34a;font-weight:bold">₪${credit.toLocaleString()} זכות</div>`);
+      }
+      const statusHtml = statusParts.length > 0 ? statusParts.join('') : `<span style="color:#0d9488;font-weight:bold">מעודכן ✓</span>`;
       return `
       <tr class="${debt > 0 ? 'unpaid' : 'paid'}">
         <td>${t.apt}</td>
