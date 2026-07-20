@@ -1208,10 +1208,10 @@ export default function App() {
     w.document.close();
   }
 
-  function printReminderSlips() {
+  function printReminderSlips(onlyTenant) {
     const { month: curMonth, year: curYear } = getCurrentHebrewDate();
     const dateStr = new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const sorted = [...(tenants || [])].sort((a, b) => Number(a.apt) - Number(b.apt));
+    const sorted = onlyTenant ? [onlyTenant] : [...(tenants || [])].sort((a, b) => Number(a.apt) - Number(b.apt));
 
     const slotsPerPage = 6;
     const pages = [];
@@ -2279,6 +2279,9 @@ export default function App() {
                     setShowStatementModal(selectedTenant);
                   }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
                     <FileText size={14} /> הורד מסמך
+                  </button>
+                  <button onClick={() => printReminderSlips(selectedTenant)} className="w-full border border-gray-200 text-gray-600 hover:border-teal-400 hover:text-teal-700 py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
+                    <Bell size={14} /> הדפס פתק תזכורת
                   </button>
                   <button onClick={() => {
                     const available = [...new Set(selectedTenant.payments.map(p => p.hebrewYear))]
