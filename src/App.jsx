@@ -223,6 +223,27 @@ function calcDebtByOccupant(tenant) {
   return [...map.entries()].filter(([, amount]) => amount > 0);
 }
 
+function isCurrentOccupantItem(tenant, item) {
+  if (tenant.vacant) return false;
+  if (!tenant.name) return false;
+  return (item.occupantName || tenant.name) === tenant.name;
+}
+
+function calcCurrentOccupantDebt(tenant) {
+  if (!tenant.ownerId) return calcDebt(tenant);
+  const fromPayments = tenant.payments.filter(p => p.status === 'חוב' && isCurrentOccupantItem(tenant, p)).reduce((sum, p) => sum + p.amount - (p.paidAmount || 0), 0);
+  const fromCharges = (tenant.charges || []).filter(c => c.status === 'חוב' && isCurrentOccupantItem(tenant, c)).reduce((sum, c) => sum + c.amount, 0);
+  return fromPayments + fromCharges;
+}
+
+function getOldDebtItems(tenant) {
+  if (!tenant.ownerId) return { payments: [], charges: [], total: 0 };
+  const payments = tenant.payments.filter(p => p.status === 'חוב' && !isCurrentOccupantItem(tenant, p));
+  const charges = (tenant.charges || []).filter(c => c.status === 'חוב' && !isCurrentOccupantItem(tenant, c));
+  const total = payments.reduce((s, p) => s + p.amount - (p.paidAmount || 0), 0) + charges.reduce((s, c) => s + c.amount, 0);
+  return { payments, charges, total };
+}
+
 function getOccupantNames(tenant) {
   return [...new Set([
     ...tenant.payments.map(p => p.occupantName || tenant.name),
@@ -541,6 +562,7 @@ export default function App() {
   const [statementOccupant, setStatementOccupant] = useState('');
   const [includeOwnedApts, setIncludeOwnedApts] = useState(false);
   const [filterYear, setFilterYear] = useState(CURRENT_HEBREW_YEAR);
+  const [showOldDebts, setShowOldDebts] = useState(false);
   const [showTenantMsg, setShowTenantMsg] = useState(false);
   const [tenantMsgText, setTenantMsgText] = useState('');
   const [editingCash, setEditingCash] = useState(false);
@@ -1460,7 +1482,7 @@ export default function App() {
 
   const selectedTenant = tenants?.find(t => t.id === selectedId);
 
-  function openTenant(id) { setSelectedId(id); setView('tenant'); setEditMode(false); }
+  function openTenant(id) { setSelectedId(id); setView('tenant'); setEditMode(false); setShowOldDebts(false); }
   function goList() { setView('list'); setSelectedId(null); setEditMode(false); }
 
   function startEdit() {
@@ -2064,6 +2086,18 @@ export default function App() {
                           className="w-full p-2 rounded-lg border text-sm bg-gray-50 border-gray-200" />
                       )}
                     </div>
+                    {(editMode ? editData.ownerId : selectedTenant.ownerId) && (
+                      <div className="sm:col-span-2">
+                        <label className={`flex items-center gap-2 text-sm ${editMode ? 'cursor-pointer' : ''}`}>
+                          <input type="checkbox"
+                            disabled={!editMode}
+                            checked={editMode ? !!editData.vacant : !!selectedTenant.vacant}
+                            onChange={e => setEditData(d => ({ ...d, vacant: e.target.checked }))}
+                            className="w-4 h-4 accent-amber-600" />
+                          <span className={selectedTenant.vacant ? 'text-amber-700 font-medium' : 'text-gray-500'}>הדירה עומדת ריקה כרגע (החוב שנצבר בתקופה זו יזוקף לבעל הדירה, לא לשוכר)</span>
+                        </label>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2363,11 +2397,47 @@ export default function App() {
               </div>
 
               <div className="space-y-5">
-                <div className="bg-white p-5 rounded-2xl border shadow-sm text-center">
-                  <p className="text-gray-500 text-sm font-medium">סך יתרת חוב</p>
-                  <p className={`text-4xl font-bold my-2 ${calcDebt(selectedTenant)>0?'text-red-600':'text-green-600'}`}>₪{calcDebt(selectedTenant).toLocaleString()}</p>
-                  <div className="w-14 h-14 bg-teal-50 rounded-full flex items-center justify-center text-xl font-bold text-teal-800 mx-auto">{selectedTenant.apt}</div>
-                </div>
+                {(() => {
+                  const isRentalUnit = !!selectedTenant.ownerId;
+                  const headlineDebt = isRentalUnit ? calcCurrentOccupantDebt(selectedTenant) : calcDebt(selectedTenant);
+                  const oldDebt = isRentalUnit ? getOldDebtItems(selectedTenant) : null;
+                  return (
+                    <>
+                      <div className="bg-white p-5 rounded-2xl border shadow-sm text-center">
+                        <p className="text-gray-500 text-sm font-medium">סך יתרת חוב{isRentalUnit ? ' (דייר נוכחי)' : ''}</p>
+                        <p className={`text-4xl font-bold my-2 ${headlineDebt>0?'text-red-600':'text-green-600'}`}>₪{headlineDebt.toLocaleString()}</p>
+                        {selectedTenant.vacant && <p className="text-xs font-medium text-amber-600 -mt-1 mb-1">הדירה עומדת ריקה</p>}
+                        <div className="w-14 h-14 bg-teal-50 rounded-full flex items-center justify-center text-xl font-bold text-teal-800 mx-auto">{selectedTenant.apt}</div>
+                      </div>
+
+                      {isRentalUnit && oldDebt.total > 0 && (
+                        <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+                          <button onClick={() => setShowOldDebts(v => !v)}
+                            className="w-full flex items-center justify-between p-4 hover:bg-amber-50/50 transition text-right">
+                            <span className="text-sm font-bold text-amber-700">חובות ישנים (על בעל הדירה) — ₪{oldDebt.total.toLocaleString()}</span>
+                            <ChevronDown size={16} className={`text-amber-600 transition-transform ${showOldDebts ? 'rotate-180' : ''}`} />
+                          </button>
+                          {showOldDebts && (
+                            <div className="px-4 pb-4 space-y-1.5 text-xs text-gray-600 border-t pt-3">
+                              {oldDebt.payments.map(p => (
+                                <div key={`p-${p.id}`} className="flex justify-between">
+                                  <span>{p.hebrewMonth} {p.hebrewYear} — {p.occupantName || 'לא ידוע'}</span>
+                                  <span className="font-medium text-amber-700">₪{(p.amount - (p.paidAmount||0)).toLocaleString()}</span>
+                                </div>
+                              ))}
+                              {oldDebt.charges.map(c => (
+                                <div key={`c-${c.id}`} className="flex justify-between">
+                                  <span>{c.description || 'הוצאה חריגה'} — {c.occupantName || 'לא ידוע'}</span>
+                                  <span className="font-medium text-amber-700">₪{(c.amount||0).toLocaleString()}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
 
                 {(() => {
                   const { month: curM, year: curY } = getCurrentHebrewDate();
