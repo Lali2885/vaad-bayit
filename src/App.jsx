@@ -1553,6 +1553,55 @@ export default function App() {
     return tenants.filter(t => t.ownerId === ownerId);
   }
 
+  function isExpenseAppliedToTenant(t, expenseId) {
+    if ((t.charges || []).some(c => c.expenseId === expenseId)) return true;
+    const owner = getOwnerTenant(t);
+    return !!(owner && (owner.charges || []).some(c => c.expenseId === expenseId && c.billedApartmentId === t.id));
+  }
+
+  function buildExpenseChargeFor(exp, targetTenant, id) {
+    const owner = exp.billTo === 'owner' ? getOwnerTenant(targetTenant) : null;
+    const hostTenant = owner || targetTenant;
+    const charge = {
+      id,
+      description: exp.description,
+      amount: exp.perTenantAmount,
+      status: 'חוב',
+      note: owner ? `דירה ${targetTenant.apt}` : '',
+      expenseId: exp.id,
+      occupantName: hostTenant.name,
+    };
+    if (owner) charge.billedApartmentId = targetTenant.id;
+    return { hostId: hostTenant.id, charge };
+  }
+
+  function retargetExpenseCharges(expenseId, newBillTo) {
+    setTenants(prev => {
+      const byId = new Map(prev.map(t => [t.id, t]));
+      const next = prev.map(t => ({ ...t, charges: [...(t.charges || [])] }));
+      const nextById = new Map(next.map(t => [t.id, t]));
+      next.forEach(t => {
+        const toMove = t.charges.filter(c => c.expenseId === expenseId && c.status === 'חוב' &&
+          (newBillTo === 'owner' ? !c.billedApartmentId : c.billedApartmentId));
+        toMove.forEach(charge => {
+          if (newBillTo === 'owner') {
+            const originalTenant = byId.get(t.id);
+            const owner = originalTenant.ownerId ? byId.get(originalTenant.ownerId) : null;
+            if (!owner) return;
+            t.charges = t.charges.filter(c => c.id !== charge.id);
+            nextById.get(owner.id).charges.push({ ...charge, billedApartmentId: t.id, occupantName: owner.name, note: charge.note || `דירה ${originalTenant.apt}` });
+          } else {
+            const apt = byId.get(charge.billedApartmentId);
+            if (!apt) return;
+            t.charges = t.charges.filter(c => c.id !== charge.id);
+            nextById.get(apt.id).charges.push({ ...charge, billedApartmentId: undefined, occupantName: apt.name, note: '' });
+          }
+        });
+      });
+      return next;
+    });
+  }
+
   function getFeeForMonth(month, year) {
     const yearRank = y => HEBREW_YEARS.indexOf(y);
     const monthRank = m => TWELVE_MONTHS.indexOf(m);
@@ -2246,7 +2295,12 @@ export default function App() {
                         <tbody>
                           {(selectedTenant.charges || []).filter(c => c.expenseId).map(c => (
                             <tr key={c.id} className="border-b group">
-                              <td className="py-2 text-sm text-gray-700">{c.description || 'הוצאה חריגה'}</td>
+                              <td className="py-2 text-sm text-gray-700">
+                                {c.description || 'הוצאה חריגה'}
+                                {c.billedApartmentId && (
+                                  <span className="text-xs text-gray-400"> (דירה {tenants.find(t => t.id === c.billedApartmentId)?.apt})</span>
+                                )}
+                              </td>
                               <td className="py-2">
                                 <input value={c.occupantName ?? selectedTenant.name ?? ''} onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,occupantName:e.target.value} : x) }))}
                                   placeholder="שוכר" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20 text-gray-700" />
@@ -2271,23 +2325,24 @@ export default function App() {
 
                     <div className="space-y-2">
                       {settings.extraordinaryExpenses
-                        .filter(exp => !(selectedTenant.charges || []).some(c => c.expenseId === exp.id))
+                        .filter(exp => !isExpenseAppliedToTenant(selectedTenant, exp.id))
                         .map(exp => (
                           <div key={exp.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-medium text-gray-700">{exp.description || 'הוצאה ללא שם'}</span>
                               {(exp.hebrewMonth || exp.hebrewYear) && <span className="text-xs text-gray-400">{exp.hebrewDay ? `${exp.hebrewDay} ` : ''}{exp.hebrewMonth} {exp.hebrewYear}</span>}
                               <span className="text-xs font-semibold text-teal-600">₪{(exp.perTenantAmount||0).toLocaleString()} לדייר</span>
+                              {exp.billTo === 'owner' && <span className="text-xs font-semibold text-amber-600">מחויב לבעל הדירה</span>}
                             </div>
                             <button onClick={() => {
-                              const newCharge = { id: Date.now(), description: exp.description, amount: exp.perTenantAmount, status: 'חוב', note: '', expenseId: exp.id, occupantName: selectedTenant?.name || '' };
-                              setTenants(prev => prev.map(t => t.id === selectedId ? { ...t, charges: [...(t.charges||[]), newCharge] } : t));
+                              const { hostId, charge } = buildExpenseChargeFor(exp, selectedTenant, Date.now());
+                              setTenants(prev => prev.map(t => t.id === hostId ? { ...t, charges: [...(t.charges||[]), charge] } : t));
                             }} className="text-xs text-teal-700 border border-teal-200 hover:bg-teal-50 px-3 py-1.5 rounded-full font-medium transition whitespace-nowrap">
                               משוך לדייר
                             </button>
                           </div>
                         ))}
-                      {settings.extraordinaryExpenses.every(exp => (selectedTenant.charges || []).some(c => c.expenseId === exp.id)) && (
+                      {settings.extraordinaryExpenses.every(exp => isExpenseAppliedToTenant(selectedTenant, exp.id)) && (
                         <p className="text-xs text-gray-400 text-center py-2">כל ההוצאות החריגות כבר משוכות לדייר</p>
                       )}
                     </div>
@@ -2459,7 +2514,7 @@ export default function App() {
                     const { month: curM, year: curY, day: curD } = getCurrentHebrewDate();
                     const newExp = key === 'electricityExpenses'
                       ? { id: Date.now(), fromGreg: '', fromDay: curD, fromMonth: curM, fromYear: curY, toGreg: '', toDay: '', toMonth: '', toYear: '', totalAmount: 0, paymentMethod: '', paymentGreg: '', paymentDay: '', paymentMonth: '', paymentYear: '', note: '' }
-                      : { id: Date.now(), description: '', totalAmount: 0, paidAmount: 0, perTenantAmount: 0, hebrewDay: curD, hebrewMonth: curM, hebrewYear: curY, note: '' };
+                      : { id: Date.now(), description: '', totalAmount: 0, paidAmount: 0, perTenantAmount: 0, hebrewDay: curD, hebrewMonth: curM, hebrewYear: curY, note: '', ...(key === 'extraordinaryExpenses' ? { billTo: 'occupant' } : {}) };
                     setSettings(s => ({ ...s, [key]: [...(s[key] || []), newExp] }));
                   }} className="flex items-center gap-2 bg-teal-700 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-teal-600 transition">
                     <Plus size={14} /> {key === 'electricityExpenses' ? 'הוסף חשבונית' : 'הוסף הוצאה'}
@@ -2578,6 +2633,23 @@ export default function App() {
                                     <span className="text-xs text-gray-400">₪</span>
                                   </div>
 
+                                  {key === 'extraordinaryExpenses' && (
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[10px] text-gray-400 whitespace-nowrap">לחייב</span>
+                                      <select
+                                        value={exp.billTo || 'occupant'}
+                                        onChange={e => {
+                                          const newVal = e.target.value;
+                                          setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x, billTo: newVal} : x) }));
+                                          retargetExpenseCharges(exp.id, newVal);
+                                        }}
+                                        className="border border-gray-200 rounded-lg px-1.5 py-1 text-xs bg-gray-50 focus:border-teal-400 focus:outline-none text-gray-600">
+                                        <option value="occupant">שוכר</option>
+                                        <option value="owner">משכיר (בעל הדירה)</option>
+                                      </select>
+                                    </div>
+                                  )}
+
                                   <div className="flex items-center gap-1">
                                     <span className="text-[10px] text-gray-400 whitespace-nowrap">{isPulled ? 'התקבל' : 'שולם'}</span>
                                     {isPulled ? (
@@ -2627,11 +2699,16 @@ export default function App() {
                                       <>
                                         <button onClick={() => {
                                           if (!confirm(`לשלוף "${exp.description||'הוצאה חריגה'}" (₪${(exp.perTenantAmount||0).toLocaleString()}) לכל הדיירים?`)) return;
-                                          setTenants(prev => prev.map((t,i) =>
-                                            (t.charges||[]).some(c => c.expenseId===exp.id) ? t : {
-                                              ...t, charges: [...(t.charges||[]), { id: Date.now()+i, description: exp.description, amount: exp.perTenantAmount, status: 'חוב', note: '', expenseId: exp.id, occupantName: t.name }]
-                                            }
-                                          ));
+                                          setTenants(prev => {
+                                            const additions = new Map();
+                                            prev.forEach((t, i) => {
+                                              if (isExpenseAppliedToTenant(t, exp.id)) return;
+                                              const { hostId, charge } = buildExpenseChargeFor(exp, t, Date.now()+i);
+                                              if (!additions.has(hostId)) additions.set(hostId, []);
+                                              additions.get(hostId).push(charge);
+                                            });
+                                            return prev.map(t => additions.has(t.id) ? { ...t, charges: [...(t.charges||[]), ...additions.get(t.id)] } : t);
+                                          });
                                         }} className="text-xs text-teal-600 border border-teal-200 hover:bg-teal-50 px-2 py-1 rounded-full font-medium transition whitespace-nowrap">
                                           שלוף לכולם
                                         </button>
@@ -2658,11 +2735,14 @@ export default function App() {
                                   <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap gap-1.5">
                                     {linkedCharges.length === 0
                                       ? <span className="text-xs text-gray-400">אין דיירים משויכים</span>
-                                      : linkedCharges.map(c => (
-                                        <span key={c.id} className={`text-[11px] px-2 py-0.5 rounded-full border ${c.status === 'שולם' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
-                                          דירה {c.tenant.apt} — {c.tenant.name}
-                                        </span>
-                                      ))}
+                                      : linkedCharges.map(c => {
+                                        const aptTenant = c.billedApartmentId ? tenants.find(x => x.id === c.billedApartmentId) : c.tenant;
+                                        return (
+                                          <span key={c.id} className={`text-[11px] px-2 py-0.5 rounded-full border ${c.status === 'שולם' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
+                                            דירה {aptTenant?.apt} — {c.billedApartmentId ? `${c.tenant.name} (בעלים)` : c.tenant.name}
+                                          </span>
+                                        );
+                                      })}
                                   </div>
                                 )}
                               </div>
@@ -3174,7 +3254,7 @@ export default function App() {
             <p className="text-sm text-gray-500 mb-4">{selectExpModal.description || 'הוצאה חריגה'} — ₪{(selectExpModal.perTenantAmount||0).toLocaleString()} לדייר</p>
             <div className="overflow-y-auto flex-1 divide-y divide-gray-100 mb-4">
               {(() => {
-                const available = (tenants||[]).filter(t => !(t.charges||[]).some(c => c.expenseId === selectExpModal.expId));
+                const available = (tenants||[]).filter(t => !isExpenseAppliedToTenant(t, selectExpModal.expId));
                 const allSelected = available.length > 0 && available.every(t => selectedTenantIds.has(t.id));
                 return (
                   <>
@@ -3192,7 +3272,7 @@ export default function App() {
                       <span className="text-sm">סמן הכל</span>
                     </label>
                     {(tenants||[]).map(t => {
-                      const alreadyApplied = (t.charges||[]).some(c => c.expenseId === selectExpModal.expId);
+                      const alreadyApplied = isExpenseAppliedToTenant(t, selectExpModal.expId);
                       return (
                         <label key={t.id} className={`flex items-center gap-3 py-2.5 ${alreadyApplied ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50'}`}>
                           <input type="checkbox"
@@ -3221,11 +3301,18 @@ export default function App() {
               <button onClick={() => setSelectExpModal(null)} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">ביטול</button>
               <button onClick={() => {
                 if (selectedTenantIds.size === 0) return;
-                setTenants(prev => prev.map((t, i) =>
-                  selectedTenantIds.has(t.id) && !(t.charges||[]).some(c => c.expenseId===selectExpModal.expId)
-                    ? { ...t, charges: [...(t.charges||[]), { id: Date.now()+i, description: selectExpModal.description, amount: selectExpModal.perTenantAmount, status: 'חוב', note: '', expenseId: selectExpModal.expId, occupantName: t.name }] }
-                    : t
-                ));
+                const exp = (settings.extraordinaryExpenses || []).find(e => e.id === selectExpModal.expId);
+                if (!exp) return;
+                setTenants(prev => {
+                  const additions = new Map();
+                  prev.forEach((t, i) => {
+                    if (!selectedTenantIds.has(t.id) || isExpenseAppliedToTenant(t, exp.id)) return;
+                    const { hostId, charge } = buildExpenseChargeFor(exp, t, Date.now()+i);
+                    if (!additions.has(hostId)) additions.set(hostId, []);
+                    additions.get(hostId).push(charge);
+                  });
+                  return prev.map(t => additions.has(t.id) ? { ...t, charges: [...(t.charges||[]), ...additions.get(t.id)] } : t);
+                });
                 setSelectExpModal(null);
                 setSelectedTenantIds(new Set());
               }} className="bg-purple-500 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-purple-600 transition">
