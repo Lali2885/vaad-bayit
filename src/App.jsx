@@ -1603,7 +1603,7 @@ export default function App() {
       const next = prev.map(t => ({ ...t, charges: [...(t.charges || [])] }));
       const nextById = new Map(next.map(t => [t.id, t]));
       next.forEach(t => {
-        const toMove = t.charges.filter(c => c.expenseId === expenseId &&
+        const toMove = t.charges.filter(c => c.expenseId === expenseId && c.status === 'חוב' &&
           (newBillTo === 'owner' ? !c.billedApartmentId : c.billedApartmentId));
         toMove.forEach(charge => {
           if (newBillTo === 'owner') {
