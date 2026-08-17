@@ -1603,7 +1603,7 @@ export default function App() {
       const next = prev.map(t => ({ ...t, charges: [...(t.charges || [])] }));
       const nextById = new Map(next.map(t => [t.id, t]));
       next.forEach(t => {
-        const toMove = t.charges.filter(c => c.expenseId === expenseId && c.status === 'חוב' &&
+        const toMove = t.charges.filter(c => c.expenseId === expenseId &&
           (newBillTo === 'owner' ? !c.billedApartmentId : c.billedApartmentId));
         toMove.forEach(charge => {
           if (newBillTo === 'owner') {
@@ -1621,6 +1621,39 @@ export default function App() {
         });
       });
       return next;
+    });
+  }
+
+  function toggleExpenseChargeStatus(hostTenantId, chargeId) {
+    setTenants(prev => {
+      const byId = new Map(prev.map(t => [t.id, t]));
+      const host = byId.get(hostTenantId);
+      const charge = (host?.charges || []).find(c => c.id === chargeId);
+      if (!charge) return prev;
+      const newStatus = charge.status === 'שולם' ? 'חוב' : 'שולם';
+      const exp = charge.expenseId ? (settings.extraordinaryExpenses || []).find(e => e.id === charge.expenseId) : null;
+
+      const apartmentId = charge.billedApartmentId || hostTenantId;
+      const apartment = byId.get(apartmentId);
+      let correctHostId = hostTenantId;
+      if (exp && apartment) {
+        correctHostId = exp.billTo === 'owner' ? (apartment.ownerId || hostTenantId) : apartmentId;
+      }
+
+      if (correctHostId === hostTenantId) {
+        return prev.map(t => t.id !== hostTenantId ? t : { ...t, charges: t.charges.map(x => x.id === chargeId ? { ...x, status: newStatus } : x) });
+      }
+
+      const correctHost = byId.get(correctHostId);
+      const movedCharge = correctHostId === apartmentId
+        ? { ...charge, status: newStatus, billedApartmentId: undefined, occupantName: apartment.name, note: '' }
+        : { ...charge, status: newStatus, billedApartmentId: apartmentId, occupantName: correctHost.name, note: charge.note || `דירה ${apartment.apt}` };
+
+      return prev.map(t => {
+        if (t.id === hostTenantId) return { ...t, charges: t.charges.filter(x => x.id !== chargeId) };
+        if (t.id === correctHostId) return { ...t, charges: [...(t.charges || []), movedCharge] };
+        return t;
+      });
     });
   }
 
@@ -2341,7 +2374,7 @@ export default function App() {
                               </td>
                               <td className="py-2 font-medium text-gray-800">₪{(c.amount||0).toLocaleString()}</td>
                               <td className="py-2">
-                                <button onClick={() => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,status:x.status==='שולם'?'חוב':'שולם'} : x) }))}
+                                <button onClick={() => toggleExpenseChargeStatus(selectedId, c.id)}
                                   className={`text-xs px-2 py-1 rounded-full border font-medium transition ${c.status==='שולם'?'text-green-600 border-green-200 hover:bg-green-50':'text-red-500 border-red-200 hover:bg-red-50'}`}>
                                   {c.status}
                                 </button>
