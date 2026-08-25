@@ -648,6 +648,40 @@ export default function App() {
       supabase.from('app_tenants').select('data, last_auto_month').eq('user_id', session.user.id).maybeSingle(),
       supabase.from('app_settings').select('data').eq('user_id', session.user.id).maybeSingle(),
     ]).then(([tenantsRes, settingsRes]) => {
+      // הגנה קריטית: אם השרת החזיר שגיאה, או החזיר "אין נתונים" בזמן שיש לנו כבר cache
+      // מקומי (כלומר זו לא באמת משתמשת חדשה) — זה ככל הנראה כשל זמני בקריאה (רשת/טוקן),
+      // לא מחיקה אמיתית של הרשומה. בעבר מקרה כזה גרם לאיפוס כל נתוני הדיירים לברירת המחדל
+      // הקשיחה בקוד ולכתיבה מיידית שלה בחזרה לשרת - דריסה מוחלטת של היסטוריית תשלומים
+      // אמיתית. עכשיו: לא נוגעים בכלום, משאירים את מה שכבר מוצג (מה-cache אם יש), ומתריעים.
+      const tenantsLooksLost = !tenantsRes.data && hasCache;
+      const settingsLooksLost = !settingsRes.data && hasCache;
+      if (tenantsRes.error || settingsRes.error || tenantsLooksLost || settingsLooksLost) {
+        setDbError(
+          tenantsRes.error || settingsRes.error
+            ? `שגיאה בטעינת נתונים מהשרת (${(tenantsRes.error || settingsRes.error).message}) - לא בוצע שום שינוי בנתונים, ממשיכה להציג את הנתונים האחרונים שנשמרו במכשיר הזה. נסי לרענן.`
+            : `לא הצלחתי לאמת מול השרת שהנתונים עדיין קיימים שם - ממשיכה להציג את הנתונים האחרונים שנשמרו במכשיר הזה בלי לגעת בשרת. נסי לרענן בעוד רגע ותגידי לי אם זה חוזר.`
+        );
+        setDataLoading(false);
+        return;
+      }
+
+      let loadedSettings;
+      if (settingsRes.data) {
+        const p = settingsRes.data.data;
+        if (!p.managers) p.managers = [{ id: 1, name: '', phone: '', email: '', role: 'יו"ר הוועד' }];
+        if (!p.templates) p.templates = INITIAL_SETTINGS.templates;
+        if (!p.feeHistory) p.feeHistory = INITIAL_SETTINGS.feeHistory;
+        if (!p.electricityExpenses) p.electricityExpenses = [];
+        if (!p.cleaningExpenses) p.cleaningExpenses = [];
+        if (!p.regularExpenses) p.regularExpenses = [];
+        if (!p.extraordinaryExpenses) p.extraordinaryExpenses = [];
+        if (!p.emailSettings) p.emailSettings = INITIAL_SETTINGS.emailSettings;
+        loadedSettings = { ...INITIAL_SETTINGS, ...p };
+      } else {
+        loadedSettings = INITIAL_SETTINGS;
+        supabase.from('app_settings').upsert({ user_id: session.user.id, data: INITIAL_SETTINGS });
+      }
+
       let loadedTenants;
       const base = tenantsRes.data
         ? tenantsRes.data.data.map(t => ({
@@ -670,7 +704,9 @@ export default function App() {
         });
         monthsToFill.forEach((m, mIdx) => {
           if (!newPayments.some(p => p.hebrewMonth === m && p.hebrewYear === year)) {
-            newPayments.push({ id: baseId + tIdx * 100 + mIdx, hebrewMonth: m, hebrewYear: year, status: 'חוב', amount: tenant.monthlyRent, paidAmount: 0, occupantName: tenant.name });
+            const baseAmount = getFeeForMonth(m, year, loadedSettings.feeHistory);
+            const amount = Math.round(baseAmount * (Number(tenant.feePercent || 100) / 100));
+            newPayments.push({ id: baseId + tIdx * 100 + mIdx, hebrewMonth: m, hebrewYear: year, status: 'חוב', amount, paidAmount: 0, occupantName: tenant.name });
             anyAdded = true;
           }
         });
@@ -700,23 +736,6 @@ export default function App() {
         try { localStorage.setItem(cacheKeyT, JSON.stringify(loadedTenants)); } catch (e) {}
       }
 
-      let loadedSettings;
-      if (settingsRes.data) {
-        const p = settingsRes.data.data;
-        if (!p.managers) p.managers = [{ id: 1, name: '', phone: '', email: '', role: 'יו"ר הוועד' }];
-        if (!p.templates) p.templates = INITIAL_SETTINGS.templates;
-        if (!p.feeHistory) p.feeHistory = INITIAL_SETTINGS.feeHistory;
-        if (!p.electricityExpenses) p.electricityExpenses = [];
-        if (!p.cleaningExpenses) p.cleaningExpenses = [];
-        if (!p.regularExpenses) p.regularExpenses = [];
-        if (!p.extraordinaryExpenses) p.extraordinaryExpenses = [];
-        if (!p.emailSettings) p.emailSettings = INITIAL_SETTINGS.emailSettings;
-        loadedSettings = { ...INITIAL_SETTINGS, ...p };
-      } else {
-        loadedSettings = INITIAL_SETTINGS;
-        supabase.from('app_settings').upsert({ user_id: session.user.id, data: INITIAL_SETTINGS });
-      }
-
       // אותה הגנה עבור settings: לא לדרוס עריכה מקומית שנעשתה בזמן הטעינה
       const settingsEditedDuringLoad = hasCache && settingsRef.current !== lastSyncedSettingsRef.current;
       if (!settingsEditedDuringLoad) {
@@ -725,6 +744,9 @@ export default function App() {
         setSettings(loadedSettings);
         try { localStorage.setItem(cacheKeyS, JSON.stringify(loadedSettings)); } catch (e) {}
       }
+      setDataLoading(false);
+    }).catch((e) => {
+      setDbError(`טעינת הנתונים נכשלה (בעיית חיבור) - לא בוצע שום שינוי בנתונים: ${e.message}`);
       setDataLoading(false);
     });
   }, [session]);
@@ -1657,17 +1679,17 @@ export default function App() {
     });
   }
 
-  function getFeeForMonth(month, year) {
+  function getFeeForMonth(month, year, feeHistory = settings.feeHistory) {
     const yearRank = y => HEBREW_YEARS.indexOf(y);
     const monthRank = m => TWELVE_MONTHS.indexOf(m);
-    const applicable = [...(settings.feeHistory || [])]
+    const applicable = [...(feeHistory || [])]
       .filter(f => {
         if (yearRank(year) > yearRank(f.fromYear)) return true;
         if (yearRank(year) === yearRank(f.fromYear) && monthRank(month) >= monthRank(f.fromMonth)) return true;
         return false;
       })
       .sort((a, b) => (yearRank(b.fromYear) * 100 + monthRank(b.fromMonth)) - (yearRank(a.fromYear) * 100 + monthRank(a.fromMonth)));
-    return applicable.length > 0 ? applicable[0].amount : (settings.feeHistory?.[0]?.amount || 40);
+    return applicable.length > 0 ? applicable[0].amount : (feeHistory?.[0]?.amount || 40);
   }
 
   function addPaymentDirect(month, year) {
