@@ -1557,7 +1557,10 @@ export default function App() {
   }
 
   function saveEdit() {
+    const prevTenant = tenants.find(t => t.id === editData.id);
+    const ownerJustLinked = editData.ownerId && editData.ownerId !== prevTenant?.ownerId;
     setTenants(prev => prev.map(t => t.id === editData.id ? editData : t));
+    if (ownerJustLinked) retargetOwnerChargesForApartment(editData.id);
     setSelectedId(editData.id);
     setEditMode(false);
   }
@@ -1687,6 +1690,30 @@ export default function App() {
         });
       });
       return next;
+    });
+  }
+
+  // כשמקשרים דירה מושכרת לבעל דירה (ownerId), חיובי הוצאות חריגות עם billTo='owner'
+  // שכבר נוצרו על כרטיס הדירה עצמה (לפני שהיה קישור לבעלים) לא זזים מעצמם -
+  // מעביר אותם עכשיו לכרטיס הבעלים, באותו אופן כמו retargetExpenseCharges.
+  function retargetOwnerChargesForApartment(apartmentId) {
+    setTenants(prev => {
+      const byId = new Map(prev.map(t => [t.id, t]));
+      const apartment = byId.get(apartmentId);
+      if (!apartment?.ownerId) return prev;
+      const owner = byId.get(apartment.ownerId);
+      if (!owner) return prev;
+      const ownerBilledExpenseIds = new Set(
+        (settings.extraordinaryExpenses || []).filter(e => e.billTo === 'owner').map(e => e.id)
+      );
+      const toMove = (apartment.charges || []).filter(c =>
+        c.expenseId && ownerBilledExpenseIds.has(c.expenseId) && c.status === 'חוב' && !c.billedApartmentId);
+      if (toMove.length === 0) return prev;
+      return prev.map(t => {
+        if (t.id === apartment.id) return { ...t, charges: t.charges.filter(c => !toMove.includes(c)) };
+        if (t.id === owner.id) return { ...t, charges: [...(t.charges || []), ...toMove.map(c => ({ ...c, billedApartmentId: apartment.id, occupantName: owner.name, note: c.note || `דירה ${apartment.apt}` }))] };
+        return t;
+      });
     });
   }
 
