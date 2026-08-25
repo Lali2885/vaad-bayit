@@ -578,6 +578,7 @@ export default function App() {
   const [settingsData, setSettingsData] = useState(null);
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [backupExported, setBackupExported] = useState(false);
   const [selectExpModal, setSelectExpModal] = useState(null);
   const [selectedTenantIds, setSelectedTenantIds] = useState(new Set());
   const [expandedPaidList, setExpandedPaidList] = useState(null);
@@ -1489,6 +1490,21 @@ export default function App() {
     }
     setSettingsSaved(true);
     setTimeout(() => setSettingsSaved(false), 2000);
+  }
+
+  function exportBackup() {
+    const backup = { exportedAt: new Date().toISOString(), tenants, settings };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `vaad-bayit-גיבוי-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setBackupExported(true);
+    setTimeout(() => setBackupExported(false), 2000);
   }
 
   function applyFeeToAllTenants(amount, fromMonth, fromYear) {
@@ -2919,6 +2935,15 @@ export default function App() {
             </div>
 
             <div className="space-y-5">
+              {/* גיבוי נתונים */}
+              <div className="bg-white p-6 rounded-2xl border shadow-sm">
+                <h3 className="font-bold text-base text-teal-800 mb-2">גיבוי נתונים</h3>
+                <p className="text-sm text-gray-500 mb-4">מוריד קובץ עם כל נתוני הדיירים (תשלומים, חיובים, הערות) וההגדרות (תעריפים, הוצאות חריגות) כפי שהם עכשיו. שווה להוריד מדי פעם כגיבוי אישי אצלך במחשב.</p>
+                <button onClick={exportBackup} className={`flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold transition ${backupExported ? 'bg-green-600 text-white' : 'bg-teal-700 hover:bg-teal-600 text-white'}`}>
+                  {backupExported ? <><Check size={15} /> ירד!</> : <><FileDown size={15} /> ייצוא גיבוי</>}
+                </button>
+              </div>
+
               {/* Logo */}
               <div className="bg-white p-6 rounded-2xl border shadow-sm">
                 <h3 className="font-bold text-base text-teal-800 mb-4">לוגו הבניין</h3>
