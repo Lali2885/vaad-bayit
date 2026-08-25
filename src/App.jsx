@@ -75,12 +75,27 @@ const HEBREW_YEAR_TO_NUMERIC = (() => {
   return Object.fromEntries(years.map(n => [numericToHebrewYear(n), n]));
 })();
 
+// שנה מעוברת (כמו תשפ"ז) - 13 חודשים עם אדר א׳/אדר ב׳ במקום אדר יחיד
+function isHebrewLeapYear(numericYear) {
+  return ((7 * numericYear) + 1) % 19 < 7;
+}
+function monthsForNumericYear(numericYear) {
+  return isHebrewLeapYear(numericYear)
+    ? ['תשרי','חשוון','כסלו','טבת','שבט','אדר א׳','אדר ב׳','ניסן','אייר','סיוון','תמוז','אב','אלול']
+    : TWELVE_MONTHS;
+}
+function monthsForYear(hebrewYearStr) {
+  const numericYear = HEBREW_YEAR_TO_NUMERIC[hebrewYearStr];
+  return numericYear ? monthsForNumericYear(numericYear) : TWELVE_MONTHS;
+}
+
 function isFutureMonth(month, year) {
   const { month: curMonth, year: curYear } = getCurrentHebrewDate();
   const yearNum = HEBREW_YEAR_TO_NUMERIC[year];
   const curYearNum = HEBREW_YEAR_TO_NUMERIC[curYear];
   if (yearNum !== curYearNum) return yearNum > curYearNum;
-  return TWELVE_MONTHS.indexOf(month) > TWELVE_MONTHS.indexOf(curMonth);
+  const months = monthsForYear(curYear);
+  return months.indexOf(month) > months.indexOf(curMonth);
 }
 
 function _hebElapsed(year) {
@@ -302,8 +317,9 @@ function compareExpenseDateDesc(a, b) {
   const ay = HEBREW_YEAR_TO_NUMERIC[a.hebrewYear] || 0;
   const by = HEBREW_YEAR_TO_NUMERIC[b.hebrewYear] || 0;
   if (ay !== by) return by - ay;
-  const am = TWELVE_MONTHS.indexOf(a.hebrewMonth);
-  const bm = TWELVE_MONTHS.indexOf(b.hebrewMonth);
+  const yearMonths = monthsForNumericYear(ay);
+  const am = yearMonths.indexOf(a.hebrewMonth);
+  const bm = yearMonths.indexOf(b.hebrewMonth);
   if (am !== bm) return bm - am;
   const ad = HEB_DAYS.indexOf(a.hebrewDay);
   const bd = HEB_DAYS.indexOf(b.hebrewDay);
@@ -353,14 +369,23 @@ function HebrewDatePicker({ day, month, year, onChange }) {
   }, [open]);
 
   function prevMonth() {
-    const idx = TWELVE_MONTHS.indexOf(navMonth);
-    if (idx === 0) { setNavMonth(TWELVE_MONTHS[11]); setNavYear(HEBREW_YEARS[Math.max(0, HEBREW_YEARS.indexOf(navYear) - 1)]); }
-    else setNavMonth(TWELVE_MONTHS[idx - 1]);
+    const months = monthsForYear(navYear);
+    const idx = months.indexOf(navMonth);
+    if (idx <= 0) {
+      const prevY = HEBREW_YEARS[Math.max(0, HEBREW_YEARS.indexOf(navYear) - 1)];
+      const prevMonths = monthsForYear(prevY);
+      setNavMonth(prevMonths[prevMonths.length - 1]);
+      setNavYear(prevY);
+    } else setNavMonth(months[idx - 1]);
   }
   function nextMonth() {
-    const idx = TWELVE_MONTHS.indexOf(navMonth);
-    if (idx === 11) { setNavMonth(TWELVE_MONTHS[0]); setNavYear(HEBREW_YEARS[Math.min(HEBREW_YEARS.length - 1, HEBREW_YEARS.indexOf(navYear) + 1)]); }
-    else setNavMonth(TWELVE_MONTHS[idx + 1]);
+    const months = monthsForYear(navYear);
+    const idx = months.indexOf(navMonth);
+    if (idx === -1 || idx === months.length - 1) {
+      const nextY = HEBREW_YEARS[Math.min(HEBREW_YEARS.length - 1, HEBREW_YEARS.indexOf(navYear) + 1)];
+      setNavMonth(monthsForYear(nextY)[0]);
+      setNavYear(nextY);
+    } else setNavMonth(months[idx + 1]);
   }
   function goToGreg(gYear, gMonth) {
     const { month: hm, year: hy } = gregorianToHebrewMonth(new Date(gYear, gMonth, 1));
@@ -458,7 +483,7 @@ function HebrewDatePicker({ day, month, year, onChange }) {
 
           {mode === 'month' && (
             <div className="grid grid-cols-3 gap-1">
-              {TWELVE_MONTHS.map(m => (
+              {monthsForYear(navYear).map(m => (
                 <button key={m} type="button" onClick={() => { setNavMonth(m); setMode('day'); }}
                   className={`py-1.5 text-xs rounded-lg transition ${m === navMonth ? 'bg-teal-600 text-white' : 'text-gray-700 hover:bg-teal-50'}`}>{m}</button>
               ))}
@@ -641,8 +666,9 @@ export default function App() {
 
     const { month, year } = getCurrentHebrewDate();
     const autoKey = `${month}-${year}`;
-    const currentMonthIdx = TWELVE_MONTHS.indexOf(month);
-    const monthsToFill = TWELVE_MONTHS.slice(0, currentMonthIdx + 1);
+    const yearMonthsList = monthsForYear(year);
+    const currentMonthIdx = yearMonthsList.indexOf(month);
+    const monthsToFill = yearMonthsList.slice(0, currentMonthIdx + 1);
 
     Promise.all([
       supabase.from('app_tenants').select('data, last_auto_month').eq('user_id', session.user.id).maybeSingle(),
@@ -858,9 +884,10 @@ export default function App() {
     const sortedYears = [...years].sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[a] || 0) - (HEBREW_YEAR_TO_NUMERIC[b] || 0));
 
     const yearsData = sortedYears.map(year => {
+      const yearMonths = monthsForYear(year);
       const yearPayments = tenant.payments
         .filter(p => p.hebrewYear === year)
-        .sort((a, b) => TWELVE_MONTHS.indexOf(a.hebrewMonth) - TWELVE_MONTHS.indexOf(b.hebrewMonth));
+        .sort((a, b) => yearMonths.indexOf(a.hebrewMonth) - yearMonths.indexOf(b.hebrewMonth));
       const paidPayments = yearPayments.filter(p => p.status === 'שולם');
       const debtPayments = yearPayments.filter(p => {
         const rem = p.amount - (p.paidAmount || 0);
@@ -884,7 +911,7 @@ export default function App() {
 
   function getTenantStatementDataByOccupant(tenant, years) {
     const expenseYearMap = new Map((settings.extraordinaryExpenses || []).map(e => [e.id, e.hebrewYear]));
-    const monthRank = m => TWELVE_MONTHS.indexOf(m);
+    const monthRank = (m, y) => monthsForYear(y).indexOf(m);
     const yearRank = y => HEBREW_YEAR_TO_NUMERIC[y] || 0;
 
     const debtPayments = tenant.payments.filter(p => years.has(p.hebrewYear) && p.status === 'חוב' && (p.amount - (p.paidAmount || 0)) > 0);
@@ -897,7 +924,7 @@ export default function App() {
     const occupantsData = names.map(name => {
       const payments = debtPayments
         .filter(p => occupantOf(p) === name)
-        .sort((a, b) => yearRank(a.hebrewYear) - yearRank(b.hebrewYear) || monthRank(a.hebrewMonth) - monthRank(b.hebrewMonth));
+        .sort((a, b) => yearRank(a.hebrewYear) - yearRank(b.hebrewYear) || monthRank(a.hebrewMonth, a.hebrewYear) - monthRank(b.hebrewMonth, b.hebrewYear));
       const charges = debtCharges.filter(c => occupantOf(c) === name);
       const total = payments.reduce((s, p) => s + p.amount - (p.paidAmount || 0), 0) + charges.reduce((s, c) => s + c.amount, 0);
       return { name, isCurrent: name === tenant.name, payments, charges, total };
@@ -1467,7 +1494,8 @@ export default function App() {
   function applyFeeToAllTenants(amount, fromMonth, fromYear) {
     if (!confirm(`לעדכן את כל הדיירים לתעריף ₪${amount} החל מ-${fromMonth}?`)) return;
     const yearRank = y => HEBREW_YEARS.indexOf(y);
-    const monthRank = m => TWELVE_MONTHS.indexOf(m);
+    const fromYearMonths = monthsForYear(fromYear);
+    const monthRank = m => fromYearMonths.indexOf(m);
     setTenants(prev => prev.map(t => {
       const tenantAmount = Math.round(amount * (Number(t.feePercent || 100) / 100));
       return {
@@ -1681,14 +1709,14 @@ export default function App() {
 
   function getFeeForMonth(month, year, feeHistory = settings.feeHistory) {
     const yearRank = y => HEBREW_YEARS.indexOf(y);
-    const monthRank = m => TWELVE_MONTHS.indexOf(m);
+    const monthRankIn = (y, m) => monthsForYear(y).indexOf(m);
     const applicable = [...(feeHistory || [])]
       .filter(f => {
         if (yearRank(year) > yearRank(f.fromYear)) return true;
-        if (yearRank(year) === yearRank(f.fromYear) && monthRank(month) >= monthRank(f.fromMonth)) return true;
+        if (yearRank(year) === yearRank(f.fromYear) && monthRankIn(year, month) >= monthRankIn(f.fromYear, f.fromMonth)) return true;
         return false;
       })
-      .sort((a, b) => (yearRank(b.fromYear) * 100 + monthRank(b.fromMonth)) - (yearRank(a.fromYear) * 100 + monthRank(a.fromMonth)));
+      .sort((a, b) => (yearRank(b.fromYear) * 100 + monthRankIn(b.fromYear, b.fromMonth)) - (yearRank(a.fromYear) * 100 + monthRankIn(a.fromYear, a.fromMonth)));
     return applicable.length > 0 ? applicable[0].amount : (feeHistory?.[0]?.amount || 40);
   }
 
@@ -2175,7 +2203,7 @@ export default function App() {
                       <th className="pb-2"></th>
                     </tr></thead>
                     <tbody>
-                      {[...TWELVE_MONTHS].reverse().map(month => {
+                      {[...monthsForYear(filterYear)].reverse().map(month => {
                         const p = (editMode ? editData.payments : selectedTenant.payments)
                           .find(x => x.hebrewMonth === month && x.hebrewYear === filterYear);
                         if (editMode) {
@@ -3001,7 +3029,7 @@ export default function App() {
                           <td className="py-2">
                             <select value={fee.fromMonth} onChange={e => setSettingsData(d => ({ ...d, feeHistory: d.feeHistory.map((x,j) => j===i?{...x,fromMonth:e.target.value}:x) }))}
                               className="border rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400">
-                              {TWELVE_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+                              {monthsForYear(fee.fromYear).map(m => <option key={m} value={m}>{m}</option>)}
                             </select>
                           </td>
                           <td className="py-2">
