@@ -2104,7 +2104,7 @@ export default function App() {
                 <button onClick={printTenantsStatusReport} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 hover:border-teal-400 hover:text-teal-700 px-4 py-2 rounded-full text-sm font-medium shadow-sm transition">
                   <FileDown size={15} /> הורד דוח מצב
                 </button>
-                <button onClick={printReminderSlips} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 hover:border-teal-400 hover:text-teal-700 px-4 py-2 rounded-full text-sm font-medium shadow-sm transition">
+                <button onClick={() => printReminderSlips()} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 hover:border-teal-400 hover:text-teal-700 px-4 py-2 rounded-full text-sm font-medium shadow-sm transition">
                   <FileDown size={15} /> פתקי תזכורת
                 </button>
               </div>
