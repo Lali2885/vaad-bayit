@@ -150,6 +150,17 @@ function getHebrewMonthFirstDayOfWeek(monthName, yearStr) {
 }
 
 
+// מחרוזת JSON עם מפתחות ממוינים - כדי לזהות שעדכון שחזר מהשרת (realtime) הוא בדיוק מה
+// שאנחנו עצמנו כתבנו (Postgres jsonb משנה את סדר המפתחות, אז השוואה רגילה לא מספיקה)
+function stableStringify(value) {
+  if (Array.isArray(value)) return '[' + value.map(stableStringify).join(',') + ']';
+  if (value && typeof value === 'object') {
+    return '{' + Object.keys(value).filter(k => value[k] !== undefined).sort()
+      .map(k => JSON.stringify(k) + ':' + stableStringify(value[k])).join(',') + '}';
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
 const TENANTS_VERSION = 'v5-apt1-paid';
 
 const INITIAL_TENANTS = [
@@ -602,6 +613,8 @@ export default function App() {
   const settingsRef = useRef(null);
   const lastSyncedTenantsRef = useRef(null);
   const lastSyncedSettingsRef = useRef(null);
+  const saveChainRef = useRef({ tenants: Promise.resolve(), settings: Promise.resolve() });
+  const ownWritesRef = useRef({ tenants: [], settings: [] });
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
@@ -779,41 +792,49 @@ export default function App() {
   }, [session]);
 
   // שמירה מיידית בכל שינוי (כמו ב-super-off) - בלי debounce, כדי שלא יצטברו כמה עריכות
-  // בלי שמירה ויאבדו יחד אם השמירה הסופית נכשלת (רשת לא יציבה וכו')
-  useEffect(() => {
-    if (!session || !tenants) return;
-    if (skipTenantsSaveRef.current) { skipTenantsSaveRef.current = false; return; }
-    (async () => {
-      pendingWritesRef.current++;
+  // בלי שמירה ויאבדו יחד אם השמירה הסופית נכשלת (רשת לא יציבה וכו').
+  // השמירות עוברות בתור - אחת אחרי השנייה - וכל שמירה כותבת את המצב העדכני ביותר ברגע
+  // שהגיע תורה. כך שמירה ישנה ואיטית לא יכולה להגיע לשרת אחרי חדשה ולדרוס אותה.
+  function enqueueSave(kind) {
+    const userId = session?.user?.id;
+    if (!userId) return Promise.resolve();
+    const isTenants = kind === 'tenants';
+    const dataRef = isTenants ? tenantsRef : settingsRef;
+    const syncedRef = isTenants ? lastSyncedTenantsRef : lastSyncedSettingsRef;
+    const table = isTenants ? 'app_tenants' : 'app_settings';
+    const cacheKey = isTenants ? `vaad_tenants_${userId}` : `vaad_settings_${userId}`;
+    const label = isTenants ? 'דיירים' : 'הגדרות';
+    pendingWritesRef.current++;
+    const run = async () => {
       try {
-        const { error } = await supabase.from('app_tenants')
-          .update({ data: tenants })
-          .eq('user_id', session.user.id);
-        if (error) { setDbError(`שגיאת שמירת דיירים: ${error.message} (${error.code})`); return; }
-        lastSyncedTenantsRef.current = tenants;
-        try { localStorage.setItem(`vaad_tenants_${session.user.id}`, JSON.stringify(tenants)); } catch (e) {}
+        const data = dataRef.current;
+        if (!data || data === syncedRef.current) return;
+        const written = ownWritesRef.current[kind];
+        written.push(stableStringify(data));
+        if (written.length > 10) written.shift();
+        const { error } = await supabase.from(table).update({ data }).eq('user_id', userId);
+        if (error) { setDbError(`שגיאת שמירת ${label}: ${error.message} (${error.code})`); return; }
+        syncedRef.current = data;
+        try { localStorage.setItem(cacheKey, JSON.stringify(data)); } catch (e) {}
       } catch (e) {
         setDbError(`השמירה נכשלה (בעיית חיבור) - העדכון האחרון לא נשמר, בדקי חיבור לאינטרנט ונסי שוב: ${e.message}`);
       } finally { pendingWritesRef.current--; }
-    })();
+    };
+    const p = saveChainRef.current[kind].then(run);
+    saveChainRef.current[kind] = p;
+    return p;
+  }
+
+  useEffect(() => {
+    if (!session || !tenants) return;
+    if (skipTenantsSaveRef.current) { skipTenantsSaveRef.current = false; return; }
+    enqueueSave('tenants');
   }, [tenants, session]);
 
   useEffect(() => {
     if (!session || !settings) return;
     if (skipSettingsSaveRef.current) { skipSettingsSaveRef.current = false; return; }
-    (async () => {
-      pendingWritesRef.current++;
-      try {
-        const { error } = await supabase.from('app_settings')
-          .update({ data: settings })
-          .eq('user_id', session.user.id);
-        if (error) { setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`); return; }
-        lastSyncedSettingsRef.current = settings;
-        try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settings)); } catch (e) {}
-      } catch (e) {
-        setDbError(`השמירה נכשלה (בעיית חיבור) - העדכון האחרון לא נשמר, בדקי חיבור לאינטרנט ונסי שוב: ${e.message}`);
-      } finally { pendingWritesRef.current--; }
-    })();
+    enqueueSave('settings');
   }, [settings, session]);
 
   // סנכרון בזמן אמת בין טאבים/מכשירים: אם אין עריכה מקומית ממתינה (tenantsRef עדיין שווה
@@ -826,6 +847,8 @@ export default function App() {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_tenants', filter: `user_id=eq.${session.user.id}` }, (payload) => {
         const incoming = payload.new?.data;
         if (!incoming) return;
+        // הד של שמירה שאנחנו עצמנו שלחנו - לא מחילים שוב (הד מאוחר יכול להחזיר מצב ישן למסך)
+        if (ownWritesRef.current.tenants.includes(stableStringify(incoming))) return;
         if (tenantsRef.current !== lastSyncedTenantsRef.current) return;
         skipTenantsSaveRef.current = true;
         lastSyncedTenantsRef.current = incoming;
@@ -835,6 +858,8 @@ export default function App() {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_settings', filter: `user_id=eq.${session.user.id}` }, (payload) => {
         const incoming = payload.new?.data;
         if (!incoming) return;
+        // הד של שמירה שאנחנו עצמנו שלחנו - לא מחילים שוב (הד מאוחר יכול להחזיר מצב ישן למסך)
+        if (ownWritesRef.current.settings.includes(stableStringify(incoming))) return;
         if (settingsRef.current !== lastSyncedSettingsRef.current) return;
         skipSettingsSaveRef.current = true;
         lastSyncedSettingsRef.current = incoming;
@@ -1473,20 +1498,19 @@ export default function App() {
     setSettingsSaved(false);
   }
 
+  // רק השדות שנערכים במסך ההגדרות. כל השאר (הוצאות, יתרת קופה וכו') נלקח מהמצב העדכני,
+  // כדי ששמירת ההגדרות לא תדרוס הוצאה שנוספה בינתיים (למשל ממכשיר אחר)
+  const SETTINGS_PAGE_FIELDS = ['logo', 'buildingName', 'address', 'managers', 'feeHistory', 'emailSettings', 'templates'];
+
   async function saveSettings() {
+    const merged = { ...settingsRef.current };
+    SETTINGS_PAGE_FIELDS.forEach(k => { merged[k] = settingsData[k]; });
     skipSettingsSaveRef.current = true;
-    setSettings(settingsData);
+    settingsRef.current = merged;
+    setSettings(merged);
     if (session) {
-      pendingWritesRef.current++;
       setIsSavingSettings(true);
-      try {
-        const { error } = await supabase.from('app_settings').update({ data: settingsData }).eq('user_id', session.user.id);
-        if (error) { setDbError(`שגיאת שמירת הגדרות: ${error.message} (${error.code})`); return; }
-        lastSyncedSettingsRef.current = settingsData;
-        try { localStorage.setItem(`vaad_settings_${session.user.id}`, JSON.stringify(settingsData)); } catch (e) {}
-      } catch (e) {
-        setDbError(`השמירה נכשלה (בעיית חיבור) - העדכון לא נשמר, בדקי חיבור לאינטרנט ונסי שוב: ${e.message}`);
-      } finally { pendingWritesRef.current--; setIsSavingSettings(false); }
+      try { await enqueueSave('settings'); } finally { setIsSavingSettings(false); }
     }
     setSettingsSaved(true);
     setTimeout(() => setSettingsSaved(false), 2000);
@@ -1780,7 +1804,7 @@ export default function App() {
 
   function addNewTenant() {
     const id = Math.max(0, ...tenants.map(t => t.id)) + 1;
-    setTenants(prev => [...prev, { ...newTenant, id, monthlyRent: Number(newTenant.monthlyRent) || 0, payments: [] }]);
+    setTenants(prev => [...prev, { ...newTenant, id, apt: String(newTenant.apt).trim(), monthlyRent: Number(newTenant.monthlyRent) || 0, payments: [], charges: [] }]);
     setNewTenant(EMPTY_TENANT);
     setView('list');
   }
@@ -2101,6 +2125,9 @@ export default function App() {
                 <button onClick={() => setShowEmailModal(true)} className="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-1 transition">
                   <Mail size={15} /> שלח לכולם
                 </button>
+                <button onClick={() => { setNewTenant(EMPTY_TENANT); setView('add'); }} className="bg-teal-700 hover:bg-teal-600 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-1 transition">
+                  <Plus size={15} /> דייר חדש
+                </button>
                 <button onClick={printTenantsStatusReport} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 hover:border-teal-400 hover:text-teal-700 px-4 py-2 rounded-full text-sm font-medium shadow-sm transition">
                   <FileDown size={15} /> הורד דוח מצב
                 </button>
@@ -2116,8 +2143,13 @@ export default function App() {
                 { label: 'קומה 3', apts: ['7','8','9'], rental: false },
                 { label: 'קומה 4', apts: ['10','11','12'], rental: false },
                 { label: 'קומה 5 — שכירות', apts: ['13','14','15','16','17'], rental: true, full: true },
-              ].map(floor => {
-                const floorTenants = tenants.filter(t => floor.apts.includes(t.apt));
+              ].concat((() => {
+                // דירות שלא מופיעות באף קומה (למשל דייר חדש עם מספר דירה אחר) - שלא ייעלמו מהמסך
+                const known = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17'];
+                const extra = tenants.map(t => String(t.apt)).filter(a => !known.includes(a));
+                return extra.length > 0 ? [{ label: 'דירות נוספות', apts: [...new Set(extra)], rental: false, full: true }] : [];
+              })()).map(floor => {
+                const floorTenants = tenants.filter(t => floor.apts.includes(String(t.apt)));
                 return (
                   <div key={floor.label} className={`rounded-2xl border p-4 ${floor.full ? 'sm:col-span-2 border-amber-200 bg-amber-50/30' : 'border-teal-100 bg-white'}`}>
                     <h3 className={`text-xs font-bold mb-3 pb-1.5 border-b ${floor.rental ? 'text-amber-600 border-amber-200' : 'text-teal-700 border-teal-100'}`}>{floor.label}</h3>
@@ -2365,7 +2397,7 @@ export default function App() {
                                   ? <button onClick={() => togglePayment(p.id)} className="text-xs text-gray-400 hover:text-red-400 border border-gray-200 hover:border-red-200 px-2 py-0.5 rounded-full transition">בטל</button>
                                   : <button onClick={() => togglePayment(p.id)} className="text-xs text-green-600 border border-green-200 hover:bg-green-50 px-2 py-0.5 rounded-full transition whitespace-nowrap">שולם מלא</button>
                                 }
-                                <button onClick={() => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, payments: t.payments.filter(x => x.id !== p.id) }))}
+                                <button onClick={() => { if (!confirm(`למחוק את שורת התשלום של ${month} ${filterYear}?`)) return; setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, payments: t.payments.filter(x => x.id !== p.id) })); }}
                                   className="text-gray-200 hover:text-red-400 transition"><Trash2 size={13} /></button>
                               </div>
                             </td>
@@ -2426,8 +2458,8 @@ export default function App() {
                                 </button>
                               </td>
                               <td className="py-2 text-left">
-                                <button onClick={() => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.filter(x => x.id !== c.id) }))}
-                                  className="text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100">
+                                <button onClick={() => { if (!confirm(`למחוק את החיוב "${c.description || 'הוצאה חריגה'}"?`)) return; setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.filter(x => x.id !== c.id) })); }}
+                                  className="text-gray-200 hover:text-red-400 transition md:opacity-0 md:group-hover:opacity-100">
                                   <Trash2 size={14} />
                                 </button>
                               </td>
@@ -2473,8 +2505,8 @@ export default function App() {
                                 </button>
                               </td>
                               <td className="py-2 text-left">
-                                <button onClick={() => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.filter(x => x.id !== c.id) }))}
-                                  className="text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100"><Trash2 size={13} /></button>
+                                <button onClick={() => { if (!confirm(`למחוק את החיוב "${c.description || 'הוצאה חריגה'}"?`)) return; setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.filter(x => x.id !== c.id) })); }}
+                                  className="text-gray-200 hover:text-red-400 transition md:opacity-0 md:group-hover:opacity-100"><Trash2 size={13} /></button>
                               </td>
                             </tr>
                           ))}
@@ -2618,8 +2650,6 @@ export default function App() {
 
                 <div className="bg-white p-5 rounded-2xl border shadow-sm space-y-2">
                   <h4 className="font-bold text-base text-teal-800 mb-3">פעולות</h4>
-                  <button className="w-full bg-teal-700 hover:bg-teal-600 text-white py-2.5 rounded-xl text-sm font-bold transition">תשלום גבייה</button>
-                  <button className="w-full bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded-xl text-sm font-bold transition">הסדר תשלום</button>
                   <button onClick={() => {
                     const available = [...new Set(selectedTenant.payments.map(p => p.hebrewYear))]
                       .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
@@ -2778,8 +2808,8 @@ export default function App() {
                                     placeholder="הערות" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-xs bg-transparent w-full text-gray-500" />
                                 </td>
                                 <td className="px-3 py-3 text-left">
-                                  <button onClick={() => setSettings(s => ({ ...s, [key]: s[key].filter(x => x.id !== exp.id) }))}
-                                    className="text-gray-200 hover:text-red-400 transition opacity-0 group-hover:opacity-100">
+                                  <button onClick={() => { if (!confirm(`למחוק את חשבונית החשמל (₪${(exp.totalAmount||0).toLocaleString()})?`)) return; setSettings(s => ({ ...s, [key]: s[key].filter(x => x.id !== exp.id) })); }}
+                                    className="text-gray-200 hover:text-red-400 transition md:opacity-0 md:group-hover:opacity-100">
                                     <Trash2 size={14} />
                                   </button>
                                 </td>
@@ -2917,11 +2947,17 @@ export default function App() {
                                       </>
                                     )}
                                     <button onClick={() => {
+                                      const msg = isPulled
+                                        ? `למחוק את "${exp.description||'הוצאה חריגה'}"?
+
+שימי לב: ההוצאה משויכת ל-${linkedCharges.length} דיירים (${paidCharges.length} כבר שילמו) - כל החיובים האלה יימחקו מכרטיסי הדיירים.`
+                                        : `למחוק את ההוצאה "${exp.description||'ללא שם'}"?`;
+                                      if (!confirm(msg)) return;
                                       setSettings(s => ({ ...s, [key]: s[key].filter(x => x.id !== exp.id) }));
                                       if (key === 'extraordinaryExpenses') {
                                         setTenants(prev => prev.map(t => ({ ...t, charges: (t.charges||[]).filter(c => c.expenseId !== exp.id) })));
                                       }
-                                    }} className="text-gray-300 hover:text-red-400 transition opacity-0 group-hover:opacity-100">
+                                    }} className="text-gray-300 hover:text-red-400 transition md:opacity-0 md:group-hover:opacity-100">
                                       <Trash2 size={14} />
                                     </button>
                                   </div>
@@ -3492,7 +3528,7 @@ export default function App() {
                               });
                             }}
                             className="w-4 h-4 accent-purple-500" />
-                          <span className="text-sm font-medium text-gray-700">דירה {t.apartment}</span>
+                          <span className="text-sm font-medium text-gray-700">דירה {t.apt}</span>
                           <span className="text-sm text-gray-500">{t.name}</span>
                           {alreadyApplied && <span className="text-xs text-gray-400 mr-auto">שולף</span>}
                         </label>
