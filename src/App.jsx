@@ -227,26 +227,70 @@ const INITIAL_TENANTS = [
   { id: 17, name: 'דירה גדולה פריד', apt: '17', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 40, owner: 'פריד', payments: [], charges: [] },
 ];
 
+// חשבון ה-Gmail של הוועד - ממנו נפתחים המיילים במחשב
+const GMAIL_ACCOUNT = 'vaad.bayitk85@gmail.com';
+
 const PAYMENT_METHODS = ['מזומן', 'ביט', 'פייבוקס', 'העברה בנקאית', 'צ׳ק', 'הוראת קבע', 'אחר'];
 
 function monthSortKey(month, year) {
   return (HEBREW_YEAR_TO_NUMERIC[year] || 0) * 100 + monthsForYear(year).indexOf(month);
 }
 
-// כל החובות הפתוחים של דייר, לפי סדר תשלום: קודם דמי ועד מהחודש הכי ישן, אחר כך חיובים.
-// בדירה מושכרת - חובות של שוכר קודם מסומנים isCurrent=false (לא נבחרים אוטומטית)
-function getOpenDebtItems(tenant) {
-  const isCurrent = x => !tenant.ownerId || isCurrentOccupantItem(tenant, x);
-  const monthly = tenant.payments
+// ===== דירות מושכרות =====
+// עיקרון: כל חוב רשום במקום אחד - בכרטיס הדירה שהוא שייך לה. כרטיס בעל הדירה רק מרכז ומציג.
+// חריג ישן: חיובי הוצאות חריגות שנוצרו בעבר "על בעל הדירה" רשומים פיזית אצלו עם billedApartmentId -
+// הם לא מוזזים (כדי לא לגעת בנתונים), אלא מוצגים ומחושבים תחת הדירה שהם שייכים לה.
+
+// החיובים ששייכים לדירה: { c: החיוב, hostId: הכרטיס שבו הוא רשום בפועל }
+function unitCharges(unit, all) {
+  const exists = id => all.some(x => x.id === id);
+  const own = (unit.charges || [])
+    .filter(c => !c.billedApartmentId || c.billedApartmentId === unit.id || !exists(c.billedApartmentId))
+    .map(c => ({ c, hostId: unit.id }));
+  const elsewhere = all
+    .filter(x => x.id !== unit.id)
+    .flatMap(x => (x.charges || []).filter(c => c.billedApartmentId === unit.id).map(c => ({ c, hostId: x.id })));
+  return [...own, ...elsewhere];
+}
+
+// עותק של הדירה עם החיובים ששייכים לה (לחישובים ולמסמכים - לא נשמר)
+function unitView(unit, all) {
+  return { ...unit, charges: unitCharges(unit, all).map(x => x.c) };
+}
+
+function unitDebt(unit, all) {
+  return calcDebt(unitView(unit, all));
+}
+
+function ownedUnits(owner, all) {
+  return all.filter(t => t.ownerId === owner.id);
+}
+
+// כמה המשלם צריך לשלם: דירה מושכרת - החוב שלה; בעל דירה - החוב שלו + של כל הדירות שלו
+function payerTotal(t, all) {
+  if (t.ownerId) return unitDebt(t, all);
+  return unitDebt(t, all) + ownedUnits(t, all).reduce((s, a) => s + unitDebt(a, all), 0);
+}
+
+function unitDebtItems(unit, all) {
+  const monthly = unit.payments
     .filter(p => p.status === 'חוב' && p.amount - (p.paidAmount || 0) > 0)
-    .sort((a, b) => monthSortKey(a.hebrewMonth, a.hebrewYear) - monthSortKey(b.hebrewMonth, b.hebrewYear))
-    .map(p => ({ key: `p-${p.id}`, kind: 'payment', refId: p.id, label: `ועד בית — ${p.hebrewMonth} ${p.hebrewYear}`,
-      due: p.amount - (p.paidAmount || 0), partial: true, occupant: p.occupantName || tenant.name, isCurrent: isCurrent(p) }));
-  const charges = (tenant.charges || [])
-    .filter(c => c.status === 'חוב' && c.amount > 0)
-    .map(c => ({ key: `c-${c.id}`, kind: 'charge', refId: c.id, label: `${c.description || 'חיוב'}${c.note ? ` (${c.note})` : ''}`,
-      due: c.amount, partial: false, occupant: c.occupantName || tenant.name, isCurrent: isCurrent(c) }));
+    .map(p => ({ key: `p-${unit.id}-${p.id}`, kind: 'payment', hostId: unit.id, unitId: unit.id, refId: p.id,
+      label: `ועד בית — ${p.hebrewMonth} ${p.hebrewYear}`, due: p.amount - (p.paidAmount || 0), partial: true,
+      sortKey: monthSortKey(p.hebrewMonth, p.hebrewYear) }));
+  const charges = unitCharges(unit, all)
+    .filter(({ c }) => c.status === 'חוב' && c.amount > 0)
+    .map(({ c, hostId }) => ({ key: `c-${hostId}-${c.id}`, kind: 'charge', hostId, unitId: unit.id, refId: c.id,
+      label: c.description || 'חיוב', due: c.amount, partial: false, sortKey: Infinity }));
   return [...monthly, ...charges];
+}
+
+// כל החובות שתשלום מהמשלם הזה יכול לכסות, לפי סדר תשלום: קודם דמי ועד מהחודש הכי ישן
+// (בכל הדירות שלו יחד), אחר כך חיובים. דירה מושכרת - רק החובות שלה.
+function receiptDebtItems(payer, all) {
+  const units = payer.ownerId ? [payer] : [payer, ...ownedUnits(payer, all)];
+  const items = units.flatMap(u => unitDebtItems(u, all));
+  return items.sort((a, b) => a.sortKey - b.sortKey);
 }
 
 // חלוקת סכום על החובות שנבחרו לפי הסדר. חיוב (שאין לו תשלום חלקי) מכוסה רק אם יש מספיק לכולו.
@@ -302,26 +346,6 @@ function calcDebtByOccupant(tenant) {
   return [...map.entries()].filter(([, amount]) => amount > 0);
 }
 
-function isCurrentOccupantItem(tenant, item) {
-  if (tenant.vacant) return false;
-  if (!tenant.name) return false;
-  return (item.occupantName || tenant.name) === tenant.name;
-}
-
-function calcCurrentOccupantDebt(tenant) {
-  if (!tenant.ownerId) return calcDebt(tenant);
-  const fromPayments = tenant.payments.filter(p => p.status === 'חוב' && isCurrentOccupantItem(tenant, p)).reduce((sum, p) => sum + p.amount - (p.paidAmount || 0), 0);
-  const fromCharges = (tenant.charges || []).filter(c => c.status === 'חוב' && isCurrentOccupantItem(tenant, c)).reduce((sum, c) => sum + c.amount, 0);
-  return fromPayments + fromCharges;
-}
-
-function getOldDebtItems(tenant) {
-  if (!tenant.ownerId) return { payments: [], charges: [], total: 0 };
-  const payments = tenant.payments.filter(p => p.status === 'חוב' && !isCurrentOccupantItem(tenant, p));
-  const charges = (tenant.charges || []).filter(c => c.status === 'חוב' && !isCurrentOccupantItem(tenant, c));
-  const total = payments.reduce((s, p) => s + p.amount - (p.paidAmount || 0), 0) + charges.reduce((s, c) => s + c.amount, 0);
-  return { payments, charges, total };
-}
 
 function getOccupantNames(tenant) {
   return [...new Set([
@@ -652,7 +676,6 @@ export default function App() {
   const [statementOccupant, setStatementOccupant] = useState('');
   const [includeOwnedApts, setIncludeOwnedApts] = useState(false);
   const [filterYear, setFilterYear] = useState(CURRENT_HEBREW_YEAR);
-  const [showOldDebts, setShowOldDebts] = useState(false);
   const [showTenantMsg, setShowTenantMsg] = useState(false);
   const [tenantMsgText, setTenantMsgText] = useState('');
   const [editingCash, setEditingCash] = useState(false);
@@ -951,7 +974,7 @@ export default function App() {
       const params = [bcc && `bcc=${enc(bcc)}`, `subject=${enc(subject)}`, `body=${enc(body)}`].filter(Boolean).join('&');
       window.location.href = `mailto:${enc(to)}?${params}`;
     } else {
-      const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${enc(to)}${bcc ? `&bcc=${enc(bcc)}` : ''}&su=${enc(subject)}&body=${enc(body)}`;
+      const url = `https://mail.google.com/mail/?authuser=${enc(GMAIL_ACCOUNT)}&view=cm&fs=1&to=${enc(to)}${bcc ? `&bcc=${enc(bcc)}` : ''}&su=${enc(subject)}&body=${enc(body)}`;
       window.open(url, '_blank');
     }
   }
@@ -1012,7 +1035,8 @@ export default function App() {
     return { occupantsData, totalDebtAmt };
   }
 
-  function buildTenantStatementText(tenant, mode = 'full', years, occupantFilter = '') {
+  function buildTenantStatementText(tenantRaw, mode = 'full', years, occupantFilter = '') {
+    const tenant = unitView(tenantRaw, tenants);
     const debtsOnly = mode === 'debtsOnly';
     const effTenant = filterTenantByOccupant(tenant, occupantFilter);
     const yearsToUse = years && years.size > 0 ? years : new Set(effTenant.payments.map(p => p.hebrewYear));
@@ -1151,7 +1175,8 @@ export default function App() {
   `).join('');
   }
 
-  function buildTenantStatementHtml(tenant, years, mode = 'full', includeOwned = false, occupantFilter = '') {
+  function buildTenantStatementHtml(tenantRaw, years, mode = 'full', includeOwned = false, occupantFilter = '') {
+    const tenant = unitView(tenantRaw, tenants);
     const debtsOnly = mode === 'debtsOnly';
     const byOccupant = mode === 'byOccupant';
     const { month: curMonth, year: curYear } = getCurrentHebrewDate();
@@ -1166,7 +1191,7 @@ export default function App() {
 
     const ownedApts = includeOwned ? getOwnedApartments(tenant.id) : [];
     const ownedSections = ownedApts.map(apt => {
-      const effApt = filterTenantByOccupant(apt, occupantFilter);
+      const effApt = filterTenantByOccupant(unitView(apt, tenants), occupantFilter);
       const aptYears = new Set(effApt.payments.map(p => p.hebrewYear));
       const aptData = byOccupant ? getTenantStatementDataByOccupant(effApt, aptYears) : getTenantStatementData(effApt, aptYears);
       const aptBodyHtml = byOccupant ? renderOccupantsBlocksHtml(aptData.occupantsData) : renderYearsBlocksHtml(aptData.yearsData, debtsOnly);
@@ -1384,9 +1409,9 @@ export default function App() {
 
     const sorted = [...(tenants || [])].sort((a, b) => Number(a.apt) - Number(b.apt));
     const rows = sorted.map(t => {
-      const debt = calcDebt(t);
+      const debt = unitDebt(t, tenants);
       const credit = calcCredit(t);
-      const debtByOccupant = debt > 0 ? calcDebtByOccupant(t) : [];
+      const debtByOccupant = debt > 0 ? calcDebtByOccupant(unitView(t, tenants)) : [];
       const statusParts = [];
       if (debt > 0) {
         statusParts.push(`<div style="color:#dc2626;font-weight:bold">₪${debt.toLocaleString()} חוב</div>`);
@@ -1409,7 +1434,7 @@ export default function App() {
       </tr>`;
     }).join('');
 
-    const totalDebtSum = sorted.reduce((s, t) => s + calcDebt(t), 0);
+    const totalDebtSum = sorted.reduce((s, t) => s + unitDebt(t, tenants), 0);
     const totalCreditSum = sorted.reduce((s, t) => s + calcCredit(t), 0);
 
     const html = `<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="UTF-8">
@@ -1459,13 +1484,19 @@ export default function App() {
   function printReminderSlips(onlyTenant) {
     const { month: curMonth, year: curYear } = getCurrentHebrewDate();
     const dateStr = new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const sorted = onlyTenant ? [onlyTenant] : [...(tenants || [])].sort((a, b) => Number(a.apt) - Number(b.apt));
+    // דירה מושכרת - הפתק יוצא לבעל הדירה (והחוב שלה כלול בו)
+    const payerOf = t => (t.ownerId && getOwnerTenant(t)) || t;
+    const sorted = onlyTenant ? [payerOf(onlyTenant)] : [...(tenants || [])].filter(t => !t.ownerId).sort((a, b) => Number(a.apt) - Number(b.apt));
 
     const slotsPerPage = 6;
     const pages = [];
     for (let i = 0; i < sorted.length; i += slotsPerPage) pages.push(sorted.slice(i, i + slotsPerPage));
 
-    const slipHtml = (t) => {
+    const slipHtml = (tRaw) => {
+      const t = unitView(tRaw, tenants);
+      const aptLines = getOwnedApartments(tRaw.id)
+        .map(a => ({ a, d: unitDebt(a, tenants) })).filter(x => x.d > 0)
+        .map(({ a, d }) => ({ d, line: `₪${d.toLocaleString()} – דירה ${a.apt}${a.name && !a.vacant ? ` (${a.name})` : ''}` }));
       const amount = Number(t.monthlyRent) || 0;
       const curPayment = (t.payments || []).find(p => p.hebrewMonth === curMonth && p.hebrewYear === curYear);
       const paidThisMonth = curPayment && curPayment.status === 'שולם';
@@ -1485,11 +1516,12 @@ export default function App() {
         .filter(p => p.status === 'חוב' && isCurrentOccupant(p) && !(p.hebrewMonth === curMonth && p.hebrewYear === curYear))
         .reduce((s, p) => s + p.amount - (p.paidAmount || 0), 0);
       const chargesDebtTotal = Object.values(chargeDebtsByDesc).reduce((s, a) => s + a, 0);
-      const debt = currentMonthDebt + chargesDebtTotal + prevMonthsDebt;
+      const debt = currentMonthDebt + chargesDebtTotal + prevMonthsDebt + aptLines.reduce((s, x) => s + x.d, 0);
       const debtDetailLines = [
         ...(currentMonthDebt > 0 ? [`₪${currentMonthDebt.toLocaleString()} – חודש ${curMonth} ${curYear} (החודש הנוכחי)`] : []),
         ...Object.entries(chargeDebtsByDesc).map(([desc, amt]) => `₪${amt.toLocaleString()} – ${desc}`),
         ...(prevMonthsDebt > 0 ? [`₪${prevMonthsDebt.toLocaleString()} – תשלומים חודשיים קודמים (ניתן לקבל פירוט מלא במייל)`] : []),
+        ...aptLines.map(x => x.line),
       ];
 
       return `
@@ -1624,7 +1656,7 @@ export default function App() {
 
   const selectedTenant = tenants?.find(t => t.id === selectedId);
 
-  function openTenant(id) { setSelectedId(id); setView('tenant'); setEditMode(false); setShowOldDebts(false); }
+  function openTenant(id) { setSelectedId(id); setView('tenant'); setEditMode(false); }
   function goList() { setView('list'); setSelectedId(null); setEditMode(false); }
 
   function startEdit() {
@@ -1633,10 +1665,7 @@ export default function App() {
   }
 
   function saveEdit() {
-    const prevTenant = tenants.find(t => t.id === editData.id);
-    const ownerJustLinked = editData.ownerId && editData.ownerId !== prevTenant?.ownerId;
     setTenants(prev => prev.map(t => t.id === editData.id ? editData : t));
-    if (ownerJustLinked) retargetOwnerChargesForApartment(editData.id);
     setSelectedId(editData.id);
     setEditMode(false);
   }
@@ -1685,7 +1714,7 @@ export default function App() {
     return tpl.body
       .replace(/{שם}/g, tenant.name)
       .replace(/{חודש}/g, month)
-      .replace(/{סכום}/g, calcDebt(tenant).toLocaleString())
+      .replace(/{סכום}/g, payerTotal(tenant, tenants).toLocaleString())
       .replace(/{תאריך}/g, new Date().toLocaleDateString('he-IL'))
       .replace(/{מנהל}/g, mgr.name || '')
       .replace(/{טלפון}/g, mgr.phone || '')
@@ -1712,110 +1741,61 @@ export default function App() {
     return tenants.filter(t => t.ownerId === ownerId);
   }
 
+  // בדירה מושכרת: על חשבון מי החיוב - 'occupant' (בעל הדירה גובה מהשוכר) או 'owner' (על חשבון בעל הדירה).
+  // בחירה ידנית על החיוב > ההגדרה של ההוצאה החריגה > חיוב ישן שנרשם אצל בעל הדירה = על חשבונו.
+  function chargeBillTo(c) {
+    if (c.billTo) return c.billTo;
+    if (c.expenseId) {
+      const exp = (settings.extraordinaryExpenses || []).find(e => e.id === c.expenseId);
+      if (exp?.billTo) return exp.billTo;
+    }
+    return c.billedApartmentId ? 'owner' : 'occupant';
+  }
+
+  // פירוק חוב של דירה מושכרת: כמה בעל הדירה צריך לגבות מהשוכר וכמה על חשבונו
+  function unitDebtSplit(unit) {
+    const v = unitView(unit, tenants);
+    const monthly = v.payments.filter(p => p.status === 'חוב').reduce((s, p) => s + p.amount - (p.paidAmount || 0), 0);
+    const open = v.charges.filter(c => c.status === 'חוב');
+    const ownerCharges = open.filter(c => chargeBillTo(c) === 'owner').reduce((s, c) => s + c.amount, 0);
+    const occCharges = open.filter(c => chargeBillTo(c) !== 'owner').reduce((s, c) => s + c.amount, 0);
+    const monthlyOwner = unit.monthlyBillTo === 'owner';
+    return {
+      occupant: occCharges + (monthlyOwner ? 0 : monthly),
+      owner: ownerCharges + (monthlyOwner ? monthly : 0),
+      total: monthly + ownerCharges + occCharges,
+    };
+  }
+
+  function updateChargeOnHost(hostId, chargeId, patch) {
+    setTenants(prev => prev.map(t => t.id !== hostId ? t : { ...t, charges: (t.charges || []).map(x => x.id === chargeId ? { ...x, ...patch } : x) }));
+  }
+
+  function deleteChargeOnHost(hostId, chargeId) {
+    setTenants(prev => prev.map(t => t.id !== hostId ? t : { ...t, charges: (t.charges || []).filter(x => x.id !== chargeId) }));
+  }
+
   function isExpenseAppliedToTenant(t, expenseId) {
-    if ((t.charges || []).some(c => c.expenseId === expenseId)) return true;
-    const owner = getOwnerTenant(t);
-    return !!(owner && (owner.charges || []).some(c => c.expenseId === expenseId && c.billedApartmentId === t.id));
+    return unitCharges(t, tenants).some(({ c }) => c.expenseId === expenseId);
   }
 
   function buildExpenseChargeFor(exp, targetTenant, id) {
-    const owner = exp.billTo === 'owner' ? getOwnerTenant(targetTenant) : null;
-    const hostTenant = owner || targetTenant;
     const charge = {
       id,
       description: exp.description,
       amount: exp.perTenantAmount,
       status: 'חוב',
-      note: owner ? `דירה ${targetTenant.apt}` : '',
+      note: '',
       expenseId: exp.id,
-      occupantName: hostTenant.name,
+      occupantName: targetTenant.name,
     };
-    if (owner) charge.billedApartmentId = targetTenant.id;
-    return { hostId: hostTenant.id, charge };
-  }
-
-  function retargetExpenseCharges(expenseId, newBillTo) {
-    setTenants(prev => {
-      const byId = new Map(prev.map(t => [t.id, t]));
-      const next = prev.map(t => ({ ...t, charges: [...(t.charges || [])] }));
-      const nextById = new Map(next.map(t => [t.id, t]));
-      next.forEach(t => {
-        const toMove = t.charges.filter(c => c.expenseId === expenseId && c.status === 'חוב' &&
-          (newBillTo === 'owner' ? !c.billedApartmentId : c.billedApartmentId));
-        toMove.forEach(charge => {
-          if (newBillTo === 'owner') {
-            const originalTenant = byId.get(t.id);
-            const owner = originalTenant.ownerId ? byId.get(originalTenant.ownerId) : null;
-            if (!owner) return;
-            t.charges = t.charges.filter(c => c.id !== charge.id);
-            nextById.get(owner.id).charges.push({ ...charge, billedApartmentId: t.id, occupantName: owner.name, note: charge.note || `דירה ${originalTenant.apt}` });
-          } else {
-            const apt = byId.get(charge.billedApartmentId);
-            if (!apt) return;
-            t.charges = t.charges.filter(c => c.id !== charge.id);
-            nextById.get(apt.id).charges.push({ ...charge, billedApartmentId: undefined, occupantName: apt.name, note: '' });
-          }
-        });
-      });
-      return next;
-    });
-  }
-
-  // כשמקשרים דירה מושכרת לבעל דירה (ownerId), חיובי הוצאות חריגות עם billTo='owner'
-  // שכבר נוצרו על כרטיס הדירה עצמה (לפני שהיה קישור לבעלים) לא זזים מעצמם -
-  // מעביר אותם עכשיו לכרטיס הבעלים, באותו אופן כמו retargetExpenseCharges.
-  function retargetOwnerChargesForApartment(apartmentId) {
-    setTenants(prev => {
-      const byId = new Map(prev.map(t => [t.id, t]));
-      const apartment = byId.get(apartmentId);
-      if (!apartment?.ownerId) return prev;
-      const owner = byId.get(apartment.ownerId);
-      if (!owner) return prev;
-      const ownerBilledExpenseIds = new Set(
-        (settings.extraordinaryExpenses || []).filter(e => e.billTo === 'owner').map(e => e.id)
-      );
-      const toMove = (apartment.charges || []).filter(c =>
-        c.expenseId && ownerBilledExpenseIds.has(c.expenseId) && c.status === 'חוב' && !c.billedApartmentId);
-      if (toMove.length === 0) return prev;
-      return prev.map(t => {
-        if (t.id === apartment.id) return { ...t, charges: t.charges.filter(c => !toMove.includes(c)) };
-        if (t.id === owner.id) return { ...t, charges: [...(t.charges || []), ...toMove.map(c => ({ ...c, billedApartmentId: apartment.id, occupantName: owner.name, note: c.note || `דירה ${apartment.apt}` }))] };
-        return t;
-      });
-    });
+    return { hostId: targetTenant.id, charge };
   }
 
   function toggleExpenseChargeStatus(hostTenantId, chargeId) {
-    setTenants(prev => {
-      const byId = new Map(prev.map(t => [t.id, t]));
-      const host = byId.get(hostTenantId);
-      const charge = (host?.charges || []).find(c => c.id === chargeId);
-      if (!charge) return prev;
-      const newStatus = charge.status === 'שולם' ? 'חוב' : 'שולם';
-      const exp = charge.expenseId ? (settings.extraordinaryExpenses || []).find(e => e.id === charge.expenseId) : null;
-
-      const apartmentId = charge.billedApartmentId || hostTenantId;
-      const apartment = byId.get(apartmentId);
-      let correctHostId = hostTenantId;
-      if (exp && apartment) {
-        correctHostId = exp.billTo === 'owner' ? (apartment.ownerId || hostTenantId) : apartmentId;
-      }
-
-      if (correctHostId === hostTenantId) {
-        return prev.map(t => t.id !== hostTenantId ? t : { ...t, charges: t.charges.map(x => x.id === chargeId ? { ...x, status: newStatus } : x) });
-      }
-
-      const correctHost = byId.get(correctHostId);
-      const movedCharge = correctHostId === apartmentId
-        ? { ...charge, status: newStatus, billedApartmentId: undefined, occupantName: apartment.name, note: '' }
-        : { ...charge, status: newStatus, billedApartmentId: apartmentId, occupantName: correctHost.name, note: charge.note || `דירה ${apartment.apt}` };
-
-      return prev.map(t => {
-        if (t.id === hostTenantId) return { ...t, charges: t.charges.filter(x => x.id !== chargeId) };
-        if (t.id === correctHostId) return { ...t, charges: [...(t.charges || []), movedCharge] };
-        return t;
-      });
-    });
+    setTenants(prev => prev.map(t => t.id !== hostTenantId ? t : {
+      ...t, charges: (t.charges || []).map(x => x.id === chargeId ? { ...x, status: x.status === 'שולם' ? 'חוב' : 'שולם' } : x),
+    }));
   }
 
   function getFeeForMonth(month, year, feeHistory = settings.feeHistory) {
@@ -1862,15 +1842,16 @@ export default function App() {
   }
 
   function openReceiptModal(tenant) {
-    const items = getOpenDebtItems(tenant);
+    const items = receiptDebtItems(tenant, tenants);
     setReceiptModal({
       tenantId: tenant.id,
       amount: '',
       date: new Date().toLocaleDateString('en-CA'),
       method: 'מזומן',
       note: '',
-      checked: new Set(items.filter(it => it.isCurrent).map(it => it.key)),
+      checked: new Set(items.map(it => it.key)),
       prepay: true,
+      prepayUnitId: tenant.id,
     });
   }
 
@@ -1878,33 +1859,49 @@ export default function App() {
     const amount = Math.round(Number(form.amount) || 0);
     if (amount <= 0) return;
     const baseId = Date.now();
-    setTenants(prev => prev.map(t => {
-      if (t.id !== form.tenantId) return t;
-      const { alloc, left } = allocateAmount(getOpenDebtItems(t), form.checked, amount);
-      const { plan, left: unallocated } = form.prepay ? planPrepaid(t, left) : { plan: [], left };
-      const allocations = alloc.map(a => ({ kind: a.kind, refId: a.refId, label: a.label, amount: a.amount }));
+    setTenants(prev => {
+      const payer = prev.find(t => t.id === form.tenantId);
+      if (!payer) return prev;
+      const aptOf = id => prev.find(t => t.id === id)?.apt;
+      const { alloc, left } = allocateAmount(receiptDebtItems(payer, prev), form.checked, amount);
+      const prepayUnit = prev.find(t => t.id === form.prepayUnitId) || payer;
+      const { plan, left: unallocated } = form.prepay ? planPrepaid(prepayUnit, left) : { plan: [], left };
+      const prefix = unitId => unitId !== payer.id ? `דירה ${aptOf(unitId)} · ` : '';
 
-      const payAlloc = new Map(alloc.filter(a => a.kind === 'payment').map(a => [a.refId, a.amount]));
-      const chargeAlloc = new Set(alloc.filter(a => a.kind === 'charge').map(a => a.refId));
-      let payments = t.payments.map(p => {
-        if (!payAlloc.has(p.id)) return p;
-        const paid = (p.paidAmount || 0) + payAlloc.get(p.id);
-        return { ...p, paidAmount: paid, status: paid >= p.amount ? 'שולם' : 'חוב' };
-      });
+      const allocations = alloc.map(a => ({ kind: a.kind, refId: a.refId, hostId: a.hostId, unitId: a.unitId, label: prefix(a.unitId) + a.label, amount: a.amount }));
+      const payAlloc = new Map(alloc.filter(a => a.kind === 'payment').map(a => [`${a.hostId}:${a.refId}`, a.amount]));
+      const chargeAlloc = new Set(alloc.filter(a => a.kind === 'charge').map(a => `${a.hostId}:${a.refId}`));
+      const newRows = [];
+      const prepaidAdds = new Map();
       plan.forEach((pl, i) => {
+        const label = `${prefix(prepayUnit.id)}תשלום מראש — ${pl.month} ${pl.year}`;
         if (pl.existingId != null) {
-          payments = payments.map(p => p.id !== pl.existingId ? p : { ...p, paidAmount: (p.paidAmount || 0) + pl.amount, status: 'זכות' });
-          allocations.push({ kind: 'prepaid', refId: pl.existingId, label: `תשלום מראש — ${pl.month} ${pl.year}`, amount: pl.amount });
+          prepaidAdds.set(pl.existingId, pl.amount);
+          allocations.push({ kind: 'prepaid', refId: pl.existingId, hostId: prepayUnit.id, unitId: prepayUnit.id, label, amount: pl.amount });
         } else {
           const id = baseId + 1 + i;
-          payments = [...payments, { id, hebrewMonth: pl.month, hebrewYear: pl.year, status: 'זכות', amount: pl.fullAmount, paidAmount: pl.amount, occupantName: t.name }];
-          allocations.push({ kind: 'prepaid', refId: id, label: `תשלום מראש — ${pl.month} ${pl.year}`, amount: pl.amount, created: true });
+          newRows.push({ id, hebrewMonth: pl.month, hebrewYear: pl.year, status: 'זכות', amount: pl.fullAmount, paidAmount: pl.amount, occupantName: prepayUnit.name });
+          allocations.push({ kind: 'prepaid', refId: id, hostId: prepayUnit.id, unitId: prepayUnit.id, label, amount: pl.amount, created: true });
         }
       });
-      const charges = (t.charges || []).map(c => chargeAlloc.has(c.id) ? { ...c, status: 'שולם' } : c);
       const receipt = { id: baseId, date: form.date, amount, method: form.method, note: form.note.trim(), allocations, unallocated };
-      return { ...t, payments, charges, receipts: [...(t.receipts || []), receipt] };
-    }));
+
+      return prev.map(t => {
+        let payments = t.payments.map(p => {
+          const k = `${t.id}:${p.id}`;
+          if (payAlloc.has(k)) {
+            const paid = (p.paidAmount || 0) + payAlloc.get(k);
+            return { ...p, paidAmount: paid, status: paid >= p.amount ? 'שולם' : 'חוב' };
+          }
+          if (t.id === prepayUnit.id && prepaidAdds.has(p.id)) return { ...p, paidAmount: (p.paidAmount || 0) + prepaidAdds.get(p.id), status: 'זכות' };
+          return p;
+        });
+        if (t.id === prepayUnit.id && newRows.length) payments = [...payments, ...newRows];
+        const charges = (t.charges || []).map(c => chargeAlloc.has(`${t.id}:${c.id}`) ? { ...c, status: 'שולם' } : c);
+        const receipts = t.id === payer.id ? [...(t.receipts || []), receipt] : t.receipts;
+        return { ...t, payments, charges, ...(receipts ? { receipts } : {}) };
+      });
+    });
     setReceiptModal(null);
   }
 
@@ -1915,10 +1912,11 @@ export default function App() {
     if (!receipt || receipt.cancelled) return;
     if (!confirm(`לבטל את קבלת התשלום של ₪${receipt.amount.toLocaleString()} מ-${fmtGregDate(receipt.date)}?\n\nכל החודשים והחיובים שהיא כיסתה יחזרו להיות חוב.`)) return;
     setTenants(prev => prev.map(t => {
-      if (t.id !== tenantId) return t;
+      const mine = receipt.allocations.filter(a => (a.hostId ?? tenantId) === t.id);
+      if (mine.length === 0 && t.id !== tenantId) return t;
       let payments = t.payments;
       let charges = t.charges || [];
-      receipt.allocations.forEach(a => {
+      mine.forEach(a => {
         if (a.kind === 'charge') {
           charges = charges.map(c => c.id === a.refId ? { ...c, status: 'חוב' } : c);
           return;
@@ -1933,8 +1931,10 @@ export default function App() {
           return [{ ...p, paidAmount: paid, status }];
         });
       });
-      const receipts = (t.receipts || []).map(r => r.id === receiptId ? { ...r, cancelled: true, cancelledAt: new Date().toISOString() } : r);
-      return { ...t, payments, charges, receipts };
+      const receipts = t.id === tenantId
+        ? (t.receipts || []).map(r => r.id === receiptId ? { ...r, cancelled: true, cancelledAt: new Date().toISOString() } : r)
+        : t.receipts;
+      return { ...t, payments, charges, ...(receipts ? { receipts } : {}) };
     }));
   }
 
@@ -2086,7 +2086,7 @@ export default function App() {
             const p = t.payments.find(p => p.hebrewMonth === curMonth && p.hebrewYear === curYear);
             return !p || p.status === 'חוב';
           }).length;
-          const debtorsCount = tenants.filter(t => calcDebt(t) > 0).length;
+          const debtorsCount = tenants.filter(t => !t.ownerId && payerTotal(t, tenants) > 0).length;
 
           const calcExpenseRemaining = (e, key) => {
             if (key === 'electricityExpenses') return e.paymentMethod ? 0 : (e.totalAmount || 0);
@@ -2296,9 +2296,10 @@ export default function App() {
                     <h3 className={`text-xs font-bold mb-3 pb-1.5 border-b ${floor.rental ? 'text-amber-600 border-amber-200' : 'text-teal-700 border-teal-100'}`}>{floor.label}</h3>
                     <div className={`grid gap-3 ${floor.full ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-3'}`}>
                       {floorTenants.map(t => {
-                        const debt = calcDebt(t);
+                        const debt = unitDebt(t, tenants);
                         const credit = calcCredit(t);
                         const isRental = floor.rental;
+                        const ownedDebt = !t.ownerId ? getOwnedApartments(t.id).reduce((s, a) => s + unitDebt(a, tenants), 0) : 0;
                         return (
                           <div key={t.id} onClick={() => openTenant(t.id)}
                             className={`p-4 rounded-2xl border text-center cursor-pointer hover:shadow-lg transition-all ${
@@ -2327,6 +2328,9 @@ export default function App() {
                               {debt === 0 && credit === 0 && (
                                 <div className="text-xs font-semibold text-teal-500">מעודכן ✓</div>
                               )}
+                              {ownedDebt > 0 && (
+                                <div className="text-[11px] text-amber-700 mt-0.5">+ ₪{ownedDebt.toLocaleString()} בדירות שלו</div>
+                              )}
                             </div>
                           </div>
                         );
@@ -2344,6 +2348,29 @@ export default function App() {
             <button onClick={goList} className="flex items-center text-teal-800 font-bold mb-5 hover:underline text-sm">
               <ChevronRight size={18} /> חזרה לרשימת הדיירים
             </button>
+            {selectedTenant.ownerId && getOwnerTenant(selectedTenant) && (() => {
+              const owner = getOwnerTenant(selectedTenant);
+              return (
+                <div className="mb-5 p-4 rounded-2xl border border-amber-200 bg-amber-50 flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <span className="text-sm text-amber-900">
+                    <b>דירה מושכרת</b> · שוכר: {selectedTenant.vacant ? 'הדירה ריקה' : (selectedTenant.name || '—')} · מול הוועד: <b>{owner.name}</b> (בעל הדירה, דירה {owner.apt})
+                  </span>
+                  <label className="flex items-center gap-1.5 text-xs text-amber-900">
+                    דמי ועד חודשיים על חשבון:
+                    <select value={selectedTenant.monthlyBillTo || 'occupant'}
+                      onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, monthlyBillTo: e.target.value }))}
+                      className="border border-amber-300 rounded-lg px-1.5 py-0.5 text-xs bg-white focus:outline-none">
+                      <option value="occupant">השוכר</option>
+                      <option value="owner">בעל הדירה</option>
+                    </select>
+                  </label>
+                  <button onClick={() => openTenant(owner.id)}
+                    className="mr-auto text-xs font-bold text-amber-800 border border-amber-300 hover:bg-amber-100 rounded-full px-3 py-1.5 transition">
+                    עבור לכרטיס בעל הדירה ←
+                  </button>
+                </div>
+              );
+            })()}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               <div className="md:col-span-2 space-y-5">
                 <div className="bg-white p-5 rounded-2xl border shadow-sm">
@@ -2393,7 +2420,7 @@ export default function App() {
                             checked={editMode ? !!editData.vacant : !!selectedTenant.vacant}
                             onChange={e => setEditData(d => ({ ...d, vacant: e.target.checked }))}
                             className="w-4 h-4 accent-amber-600" />
-                          <span className={selectedTenant.vacant ? 'text-amber-700 font-medium' : 'text-gray-500'}>הדירה עומדת ריקה כרגע (החוב שנצבר בתקופה זו יזוקף לבעל הדירה, לא לשוכר)</span>
+                          <span className={selectedTenant.vacant ? 'text-amber-700 font-medium' : 'text-gray-500'}>הדירה עומדת ריקה כרגע</span>
                         </label>
                       </div>
                     )}
@@ -2550,34 +2577,104 @@ export default function App() {
                   </div>
                 </div>
 
-                {(selectedTenant.receipts || []).length > 0 && (
-                  <div className="bg-white p-5 rounded-2xl border shadow-sm">
-                    <h4 className="font-bold text-base text-teal-800 mb-4">קבלות תשלום</h4>
-                    <div className="space-y-2">
-                      {[...selectedTenant.receipts].reverse().map(r => {
-                        const heb = r.date ? (() => { const [yy, mm, dd] = r.date.split('-').map(Number); const h = gregorianToHebrewDate(new Date(yy, mm - 1, dd)); return `${h.day} ${h.month} ${h.year}`; })() : '';
-                        return (
-                          <div key={r.id} className={`p-3 rounded-xl border text-sm ${r.cancelled ? 'bg-gray-50 border-gray-200 opacity-60' : 'bg-teal-50/40 border-teal-100'}`}>
-                            <div className="flex items-center gap-3 flex-wrap">
-                              <span className={`font-bold text-base ${r.cancelled ? 'line-through text-gray-500' : 'text-teal-700'}`}>₪{r.amount.toLocaleString()}</span>
-                              <span className="text-gray-600">{fmtGregDate(r.date)}</span>
-                              <span className="text-xs text-gray-400">{heb}</span>
-                              <span className="text-xs bg-white border border-gray-200 rounded-full px-2 py-0.5 text-gray-600">{r.method}</span>
-                              {r.cancelled
-                                ? <span className="text-xs font-bold text-red-500 mr-auto">בוטלה</span>
-                                : <button onClick={() => cancelReceipt(selectedTenant.id, r.id)} className="text-xs text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-full px-2 py-0.5 mr-auto transition">ביטול קבלה</button>}
-                            </div>
-                            <div className="text-xs text-gray-500 mt-1.5 leading-relaxed">
-                              {r.allocations.map(a => `${a.label.replace('ועד בית — ', '')}: ₪${a.amount.toLocaleString()}`).join(' · ')}
-                              {r.unallocated > 0 && <span className="text-orange-500"> · לא שויך: ₪{r.unallocated.toLocaleString()}</span>}
-                            </div>
-                            {r.note && <div className="text-xs text-gray-600 mt-1">הערה: {r.note}</div>}
-                          </div>
-                        );
-                      })}
+                {!selectedTenant.ownerId && getOwnedApartments(selectedTenant.id).length > 0 && (() => {
+                  const { month: curM, year: curY } = getCurrentHebrewDate();
+                  const apts = [...getOwnedApartments(selectedTenant.id)].sort((a, b) => Number(a.apt) - Number(b.apt));
+                  const rows = apts.map(a => ({ a, split: unitDebtSplit(a), cur: a.payments.find(p => p.hebrewMonth === curM && p.hebrewYear === curY) }));
+                  const sum = k => rows.reduce((s, r) => s + r.split[k], 0);
+                  return (
+                    <div className="bg-white p-5 rounded-2xl border border-amber-200 shadow-sm">
+                      <h4 className="font-bold text-base text-amber-800 mb-1">הדירות המושכרות של {selectedTenant.name}</h4>
+                      <p className="text-xs text-gray-400 mb-3">כל החובות של הדירות האלה נגבים דרך {selectedTenant.name}. לחיצה על דירה פותחת את הכרטיס שלה.</p>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-right">
+                          <thead><tr className="border-b text-gray-400 text-xs">
+                            <th className="pb-2 font-medium">דירה</th>
+                            <th className="pb-2 font-medium">שוכר</th>
+                            <th className="pb-2 font-medium">{curM}</th>
+                            <th className="pb-2 font-medium">לגבות מהשוכר</th>
+                            <th className="pb-2 font-medium">על חשבון המשכיר</th>
+                            <th className="pb-2 font-medium">סה״כ</th>
+                          </tr></thead>
+                          <tbody>
+                            {rows.map(({ a, split, cur }) => (
+                              <tr key={a.id} onClick={() => openTenant(a.id)} className="border-b cursor-pointer hover:bg-amber-50/60 transition">
+                                <td className="py-2 font-bold text-amber-800">{a.apt}</td>
+                                <td className="py-2 text-gray-700">{a.vacant ? <span className="text-gray-400">ריקה</span> : (a.name || '—')}</td>
+                                <td className="py-2 text-xs">
+                                  {!cur ? <span className="text-gray-300">—</span>
+                                    : cur.status === 'חוב' ? <span className="text-red-500 font-medium">לא שולם</span>
+                                    : <span className="text-green-600 font-medium">שולם ✓</span>}
+                                </td>
+                                <td className="py-2 text-gray-700">{split.occupant > 0 ? `₪${split.occupant.toLocaleString()}` : '—'}</td>
+                                <td className="py-2 text-gray-700">{split.owner > 0 ? `₪${split.owner.toLocaleString()}` : '—'}</td>
+                                <td className={`py-2 font-bold ${split.total > 0 ? 'text-red-600' : 'text-green-600'}`}>₪{split.total.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot><tr className="text-xs font-bold text-gray-600">
+                            <td className="pt-2" colSpan={3}>סה״כ דירות</td>
+                            <td className="pt-2">₪{sum('occupant').toLocaleString()}</td>
+                            <td className="pt-2">₪{sum('owner').toLocaleString()}</td>
+                            <td className="pt-2 text-red-600">₪{sum('total').toLocaleString()}</td>
+                          </tr></tfoot>
+                        </table>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
+
+                {(() => {
+                  // קבלות שנרשמו בכרטיס הזה + קבלות קשורות בכרטיסים אחרים:
+                  // בעל דירה רואה גם תשלומים ששוכר שילם ישירות; דירה מושכרת רואה גם מה שבעל הדירה שילם עבורה
+                  const list = [];
+                  (selectedTenant.receipts || []).forEach(r => list.push({ r, storedOn: selectedTenant, via: '', allocations: r.allocations, shown: r.amount }));
+                  if (!selectedTenant.ownerId) {
+                    getOwnedApartments(selectedTenant.id).forEach(a => (a.receipts || []).forEach(r => list.push({
+                      r, storedOn: a, via: `שולם ישירות בדירה ${a.apt}`,
+                      allocations: r.allocations.map(x => ({ ...x, label: `דירה ${a.apt} · ${x.label}` })), shown: r.amount,
+                    })));
+                  } else {
+                    const owner = getOwnerTenant(selectedTenant);
+                    (owner?.receipts || []).forEach(r => {
+                      const mine = r.allocations.filter(x => x.unitId === selectedTenant.id);
+                      if (mine.length === 0) return;
+                      list.push({ r, storedOn: owner, via: `שולם דרך ${owner.name} (מתוך קבלה של ₪${r.amount.toLocaleString()})`,
+                        allocations: mine.map(x => ({ ...x, label: x.label.replace(/^דירה [^·]+ · /, '') })), shown: mine.reduce((s, x) => s + x.amount, 0) });
+                    });
+                  }
+                  if (list.length === 0) return null;
+                  list.sort((a, b) => b.r.id - a.r.id);
+                  return (
+                    <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                      <h4 className="font-bold text-base text-teal-800 mb-4">קבלות תשלום</h4>
+                      <div className="space-y-2">
+                        {list.map(({ r, storedOn, via, allocations, shown }) => {
+                          const heb = r.date ? (() => { const [yy, mm, dd] = r.date.split('-').map(Number); const h = gregorianToHebrewDate(new Date(yy, mm - 1, dd)); return `${h.day} ${h.month} ${h.year}`; })() : '';
+                          return (
+                            <div key={`${storedOn.id}-${r.id}`} className={`p-3 rounded-xl border text-sm ${r.cancelled ? 'bg-gray-50 border-gray-200 opacity-60' : via ? 'bg-amber-50/40 border-amber-100' : 'bg-teal-50/40 border-teal-100'}`}>
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <span className={`font-bold text-base ${r.cancelled ? 'line-through text-gray-500' : 'text-teal-700'}`}>₪{shown.toLocaleString()}</span>
+                                <span className="text-gray-600">{fmtGregDate(r.date)}</span>
+                                <span className="text-xs text-gray-400">{heb}</span>
+                                <span className="text-xs bg-white border border-gray-200 rounded-full px-2 py-0.5 text-gray-600">{r.method}</span>
+                                {r.cancelled
+                                  ? <span className="text-xs font-bold text-red-500 mr-auto">בוטלה</span>
+                                  : <button onClick={() => cancelReceipt(storedOn.id, r.id)} className="text-xs text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-full px-2 py-0.5 mr-auto transition">ביטול קבלה</button>}
+                              </div>
+                              {via && <div className="text-xs text-amber-700 mt-1">{via}</div>}
+                              <div className="text-xs text-gray-500 mt-1.5 leading-relaxed">
+                                {allocations.map(a => `${a.label.replace('ועד בית — ', '')}: ₪${a.amount.toLocaleString()}`).join(' · ')}
+                                {!via && r.unallocated > 0 && <span className="text-orange-500"> · לא שויך: ₪{r.unallocated.toLocaleString()}</span>}
+                              </div>
+                              {r.note && <div className="text-xs text-gray-600 mt-1">הערה: {r.note}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* חיובים חד-פעמיים */}
                 <div className="bg-white p-5 rounded-2xl border shadow-sm">
@@ -2595,7 +2692,7 @@ export default function App() {
                     : <div className="overflow-x-auto"><table className="w-full text-sm text-right">
                         <thead><tr className="border-b text-gray-400 text-xs">
                           <th className="pb-2 font-medium">תיאור</th>
-                          <th className="pb-2 font-medium">שוכר</th>
+                          <th className="pb-2 font-medium">{selectedTenant.ownerId ? 'על חשבון' : 'שוכר'}</th>
                           <th className="pb-2 font-medium">הערה</th>
                           <th className="pb-2 font-medium">סכום</th>
                           <th className="pb-2 font-medium">סטטוס</th>
@@ -2609,8 +2706,14 @@ export default function App() {
                                   placeholder="תיאור החיוב" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-full" />
                               </td>
                               <td className="py-2">
-                                <input value={c.occupantName ?? selectedTenant.name ?? ''} onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,occupantName:e.target.value} : x) }))}
-                                  placeholder="שוכר" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />
+                                {selectedTenant.ownerId
+                                  ? <select value={chargeBillTo(c)} onChange={e => updateChargeOnHost(selectedId, c.id, { billTo: e.target.value })}
+                                      className="border border-gray-200 rounded-lg px-1.5 py-0.5 text-xs bg-gray-50 focus:outline-none focus:border-teal-400">
+                                      <option value="occupant">השוכר</option>
+                                      <option value="owner">בעל הדירה</option>
+                                    </select>
+                                  : <input value={c.occupantName ?? selectedTenant.name ?? ''} onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,occupantName:e.target.value} : x) }))}
+                                      placeholder="שוכר" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20" />}
                               </td>
                               <td className="py-2">
                                 <input value={c.note} onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,note:e.target.value} : x) }))}
@@ -2644,38 +2747,38 @@ export default function App() {
                   <div className="bg-white p-5 rounded-2xl border shadow-sm">
                     <h4 className="font-bold text-base text-teal-800 mb-4">הוצאות חריגות</h4>
 
-                    {(selectedTenant.charges || []).filter(c => c.expenseId).length > 0 && (
+                    {unitCharges(selectedTenant, tenants).filter(({ c }) => c.expenseId).length > 0 && (
                       <div className="overflow-x-auto">
                       <table className="w-full text-sm text-right mb-4">
                         <thead><tr className="border-b text-gray-400 text-xs">
                           <th className="pb-2 font-medium">תיאור</th>
-                          <th className="pb-2 font-medium">שוכר</th>
+                          {selectedTenant.ownerId && <th className="pb-2 font-medium">על חשבון</th>}
                           <th className="pb-2 font-medium">סכום</th>
                           <th className="pb-2 font-medium">סטטוס</th>
                           <th className="pb-2"></th>
                         </tr></thead>
                         <tbody>
-                          {(selectedTenant.charges || []).filter(c => c.expenseId).map(c => (
-                            <tr key={c.id} className="border-b group">
-                              <td className="py-2 text-sm text-gray-700">
-                                {c.description || 'הוצאה חריגה'}
-                                {c.billedApartmentId && (
-                                  <span className="text-xs text-gray-400"> (דירה {tenants.find(t => t.id === c.billedApartmentId)?.apt})</span>
-                                )}
-                              </td>
-                              <td className="py-2">
-                                <input value={c.occupantName ?? selectedTenant.name ?? ''} onChange={e => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.map(x => x.id===c.id ? {...x,occupantName:e.target.value} : x) }))}
-                                  placeholder="שוכר" className="border-b border-transparent hover:border-gray-200 focus:border-teal-400 focus:outline-none text-sm bg-transparent w-20 text-gray-700" />
-                              </td>
+                          {unitCharges(selectedTenant, tenants).filter(({ c }) => c.expenseId).map(({ c, hostId }) => (
+                            <tr key={`${hostId}-${c.id}`} className="border-b group">
+                              <td className="py-2 text-sm text-gray-700">{c.description || 'הוצאה חריגה'}</td>
+                              {selectedTenant.ownerId && (
+                                <td className="py-2">
+                                  <select value={chargeBillTo(c)} onChange={e => updateChargeOnHost(hostId, c.id, { billTo: e.target.value })}
+                                    className="border border-gray-200 rounded-lg px-1.5 py-0.5 text-xs bg-gray-50 focus:outline-none focus:border-teal-400">
+                                    <option value="occupant">השוכר</option>
+                                    <option value="owner">בעל הדירה</option>
+                                  </select>
+                                </td>
+                              )}
                               <td className="py-2 font-medium text-gray-800">₪{(c.amount||0).toLocaleString()}</td>
                               <td className="py-2">
-                                <button onClick={() => toggleExpenseChargeStatus(selectedId, c.id)}
+                                <button onClick={() => toggleExpenseChargeStatus(hostId, c.id)}
                                   className={`text-xs px-2 py-1 rounded-full border font-medium transition ${c.status==='שולם'?'text-green-600 border-green-200 hover:bg-green-50':'text-red-500 border-red-200 hover:bg-red-50'}`}>
                                   {c.status}
                                 </button>
                               </td>
                               <td className="py-2 text-left">
-                                <button onClick={() => { if (!confirm(`למחוק את החיוב "${c.description || 'הוצאה חריגה'}"?`)) return; setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, charges: t.charges.filter(x => x.id !== c.id) })); }}
+                                <button onClick={() => { if (!confirm(`למחוק את החיוב "${c.description || 'הוצאה חריגה'}"?`)) return; deleteChargeOnHost(hostId, c.id); }}
                                   className="text-gray-200 hover:text-red-400 transition md:opacity-0 md:group-hover:opacity-100"><Trash2 size={13} /></button>
                               </td>
                             </tr>
@@ -2694,7 +2797,7 @@ export default function App() {
                               <span className="text-sm font-medium text-gray-700">{exp.description || 'הוצאה ללא שם'}</span>
                               {(exp.hebrewMonth || exp.hebrewYear) && <span className="text-xs text-gray-400">{exp.hebrewDay ? `${exp.hebrewDay} ` : ''}{exp.hebrewMonth} {exp.hebrewYear}</span>}
                               <span className="text-xs font-semibold text-teal-600">₪{(exp.perTenantAmount||0).toLocaleString()} לדייר</span>
-                              {exp.billTo === 'owner' && <span className="text-xs font-semibold text-amber-600">מחויב לבעל הדירה</span>}
+                              {selectedTenant.ownerId && exp.billTo === 'owner' && <span className="text-xs font-semibold text-amber-600">על חשבון בעל הדירה</span>}
                             </div>
                             <button onClick={() => {
                               const { hostId, charge } = buildExpenseChargeFor(exp, selectedTenant, Date.now());
@@ -2727,43 +2830,32 @@ export default function App() {
               <div className="space-y-5">
                 {(() => {
                   const isRentalUnit = !!selectedTenant.ownerId;
-                  const headlineDebt = isRentalUnit ? calcCurrentOccupantDebt(selectedTenant) : calcDebt(selectedTenant);
-                  const oldDebt = isRentalUnit ? getOldDebtItems(selectedTenant) : null;
+                  const owned = isRentalUnit ? [] : [...getOwnedApartments(selectedTenant.id)].sort((a, b) => Number(a.apt) - Number(b.apt));
+                  const ownDebt = unitDebt(selectedTenant, tenants);
+                  const total = payerTotal(selectedTenant, tenants);
+                  const split = isRentalUnit ? unitDebtSplit(selectedTenant) : null;
                   return (
-                    <>
-                      <div className="bg-white p-5 rounded-2xl border shadow-sm text-center">
-                        <p className="text-gray-500 text-sm font-medium">סך יתרת חוב{isRentalUnit ? ' (דייר נוכחי)' : ''}</p>
-                        <p className={`text-4xl font-bold my-2 ${headlineDebt>0?'text-red-600':'text-green-600'}`}>₪{headlineDebt.toLocaleString()}</p>
-                        {selectedTenant.vacant && <p className="text-xs font-medium text-amber-600 -mt-1 mb-1">הדירה עומדת ריקה</p>}
-                        <div className="w-14 h-14 bg-teal-50 rounded-full flex items-center justify-center text-xl font-bold text-teal-800 mx-auto">{selectedTenant.apt}</div>
-                      </div>
-
-                      {isRentalUnit && oldDebt.total > 0 && (
-                        <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
-                          <button onClick={() => setShowOldDebts(v => !v)}
-                            className="w-full flex items-center justify-between p-4 hover:bg-amber-50/50 transition text-right">
-                            <span className="text-sm font-bold text-amber-700">חובות ישנים (על בעל הדירה) — ₪{oldDebt.total.toLocaleString()}</span>
-                            <ChevronDown size={16} className={`text-amber-600 transition-transform ${showOldDebts ? 'rotate-180' : ''}`} />
-                          </button>
-                          {showOldDebts && (
-                            <div className="px-4 pb-4 space-y-1.5 text-xs text-gray-600 border-t pt-3">
-                              {oldDebt.payments.map(p => (
-                                <div key={`p-${p.id}`} className="flex justify-between">
-                                  <span>{p.hebrewMonth} {p.hebrewYear} — {p.occupantName || 'לא ידוע'}</span>
-                                  <span className="font-medium text-amber-700">₪{(p.amount - (p.paidAmount||0)).toLocaleString()}</span>
-                                </div>
-                              ))}
-                              {oldDebt.charges.map(c => (
-                                <div key={`c-${c.id}`} className="flex justify-between">
-                                  <span>{c.description || 'הוצאה חריגה'} — {c.occupantName || 'לא ידוע'}</span>
-                                  <span className="font-medium text-amber-700">₪{(c.amount||0).toLocaleString()}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                    <div className="bg-white p-5 rounded-2xl border shadow-sm text-center">
+                      <p className="text-gray-500 text-sm font-medium">{owned.length > 0 ? 'סה״כ לתשלום (כולל הדירות שלו)' : 'סך יתרת חוב'}</p>
+                      <p className={`text-4xl font-bold my-2 ${total>0?'text-red-600':'text-green-600'}`}>₪{total.toLocaleString()}</p>
+                      {selectedTenant.vacant && <p className="text-xs font-medium text-amber-600 -mt-1 mb-1">הדירה עומדת ריקה</p>}
+                      {owned.length > 0 && (
+                        <div className="text-xs text-gray-500 space-y-1 border-t pt-2 mt-1 mb-2 text-right">
+                          <div className="flex justify-between"><span>הדירה שלו ({selectedTenant.apt})</span><span className="font-semibold">₪{ownDebt.toLocaleString()}</span></div>
+                          {owned.map(a => (
+                            <div key={a.id} className="flex justify-between"><span>דירה {a.apt}{a.name && !a.vacant ? ` (${a.name})` : ''}</span><span className="font-semibold">₪{unitDebt(a, tenants).toLocaleString()}</span></div>
+                          ))}
                         </div>
                       )}
-                    </>
+                      {split && split.total > 0 && (
+                        <div className="text-xs text-gray-500 space-y-1 border-t pt-2 mt-1 mb-2 text-right">
+                          <div className="flex justify-between"><span>לגבות מהשוכר</span><span className="font-semibold">₪{split.occupant.toLocaleString()}</span></div>
+                          <div className="flex justify-between"><span>על חשבון בעל הדירה</span><span className="font-semibold">₪{split.owner.toLocaleString()}</span></div>
+                          <div className="text-amber-700 pt-1">נגבה דרך {getOwnerTenant(selectedTenant)?.name}</div>
+                        </div>
+                      )}
+                      <div className="w-14 h-14 bg-teal-50 rounded-full flex items-center justify-center text-xl font-bold text-teal-800 mx-auto">{selectedTenant.apt}</div>
+                    </div>
                   );
                 })()}
 
@@ -2831,26 +2923,26 @@ export default function App() {
                     setStatementYears(new Set(available));
                     setStatementMode('full');
                     setStatementOccupant('');
-                    setIncludeOwnedApts(false);
+                    setIncludeOwnedApts(getOwnedApartments(selectedTenant.id).length > 0);
                     setShowStatementModal(selectedTenant);
                   }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
                     <FileText size={14} /> הורד מסמך
                   </button>
                   <button onClick={() => printReminderSlips(selectedTenant)} className="w-full border border-gray-200 text-gray-600 hover:border-teal-400 hover:text-teal-700 py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
-                    <Bell size={14} /> הדפס פתק תזכורת
+                    <Bell size={14} /> {selectedTenant.ownerId ? 'הדפס פתק לבעל הדירה' : 'הדפס פתק תזכורת'}
                   </button>
-                  <button onClick={() => {
+                  {!selectedTenant.ownerId && <button onClick={() => {
                     const available = [...new Set(selectedTenant.payments.map(p => p.hebrewYear))]
                       .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
                     setStatementYears(new Set(available));
                     setStatementMode('full');
                     setStatementOccupant('');
-                    setIncludeOwnedApts(false);
+                    setIncludeOwnedApts(getOwnedApartments(selectedTenant.id).length > 0);
                     setTenantMsgText('');
                     setShowTenantMsg(true);
                   }} className="w-full bg-sky-600 hover:bg-sky-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
                     <MessageSquare size={14} /> שלח הודעה
-                  </button>
+                  </button>}
                   <button onClick={() => deleteTenant(selectedTenant.id)} className="w-full border border-red-200 text-red-500 hover:bg-red-50 py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
                     <Trash2 size={14} /> מחק דייר
                   </button>
@@ -3036,17 +3128,16 @@ export default function App() {
 
                                   {key === 'extraordinaryExpenses' && (
                                     <div className="flex items-center gap-1">
-                                      <span className="text-[10px] text-gray-400 whitespace-nowrap">לחייב</span>
+                                      <span className="text-[10px] text-gray-400 whitespace-nowrap">בדירה מושכרת על חשבון</span>
                                       <select
                                         value={exp.billTo || 'occupant'}
                                         onChange={e => {
                                           const newVal = e.target.value;
                                           setSettings(s => ({ ...s, [key]: s[key].map(x => x.id===exp.id ? {...x, billTo: newVal} : x) }));
-                                          retargetExpenseCharges(exp.id, newVal);
                                         }}
                                         className="border border-gray-200 rounded-lg px-1.5 py-1 text-xs bg-gray-50 focus:border-teal-400 focus:outline-none text-gray-600">
-                                        <option value="occupant">שוכר</option>
-                                        <option value="owner">משכיר (בעל הדירה)</option>
+                                        <option value="occupant">השוכר</option>
+                                        <option value="owner">בעל הדירה</option>
                                       </select>
                                     </div>
                                   )}
@@ -3392,11 +3483,26 @@ export default function App() {
       {receiptModal && (() => {
         const tenant = tenants.find(t => t.id === receiptModal.tenantId);
         if (!tenant) return null;
-        const items = getOpenDebtItems(tenant);
+        const items = receiptDebtItems(tenant, tenants);
         const amount = Math.round(Number(receiptModal.amount) || 0);
         const { alloc, left } = allocateAmount(items, receiptModal.checked, amount);
         const allocByKey = new Map(alloc.map(a => [a.key, a.amount]));
-        const { plan, left: unallocated } = receiptModal.prepay ? planPrepaid(tenant, left) : { plan: [], left };
+        const ownedForPrepay = tenant.ownerId ? [] : [...getOwnedApartments(tenant.id)].sort((a, b) => Number(a.apt) - Number(b.apt));
+        const prepayUnit = tenants.find(t => t.id === receiptModal.prepayUnitId) || tenant;
+        const { plan, left: unallocated } = receiptModal.prepay ? planPrepaid(prepayUnit, left) : { plan: [], left };
+        // לכל שורה: באיזו דירה, ובדירה מושכרת - על חשבון מי
+        const itemTag = it => {
+          const unit = tenants.find(t => t.id === it.unitId);
+          if (!unit?.ownerId) return it.unitId !== tenant.id ? `דירה ${unit?.apt}` : '';
+          let billTo;
+          if (it.kind === 'payment') billTo = unit.monthlyBillTo || 'occupant';
+          else {
+            const c = (tenants.find(t => t.id === it.hostId)?.charges || []).find(x => x.id === it.refId);
+            billTo = c ? chargeBillTo(c) : 'occupant';
+          }
+          const who = billTo === 'owner' ? 'על חשבון בעל הדירה' : 'לגבות מהשוכר';
+          return it.unitId !== tenant.id ? `דירה ${unit.apt} · ${who}` : who;
+        };
         const checkedDue = items.filter(it => receiptModal.checked.has(it.key)).reduce((s, it) => s + it.due, 0);
         const skippedCharges = items.filter(it => receiptModal.checked.has(it.key) && !it.partial && !allocByKey.has(it.key));
         const setForm = patch => setReceiptModal(m => ({ ...m, ...patch }));
@@ -3460,7 +3566,7 @@ export default function App() {
                             className="w-4 h-4 accent-teal-600" />
                           <div className="flex-1 min-w-0">
                             <div className="text-sm text-gray-700">{it.label}</div>
-                            {!it.isCurrent && <div className="text-[11px] text-amber-600">שוכר קודם: {it.occupant}</div>}
+                            {itemTag(it) && <div className="text-[11px] text-amber-700">{itemTag(it)}</div>}
                           </div>
                           <span className="text-xs text-gray-400 whitespace-nowrap">חוב ₪{it.due.toLocaleString()}</span>
                           <span className={`text-sm font-bold w-20 text-left whitespace-nowrap ${got >= it.due ? 'text-green-600' : got > 0 ? 'text-amber-600' : 'text-gray-300'}`}>
@@ -3481,6 +3587,16 @@ export default function App() {
                     <input type="checkbox" checked={receiptModal.prepay} onChange={e => setForm({ prepay: e.target.checked })} className="w-4 h-4 accent-sky-600" />
                     <span>נשארו <b>₪{left.toLocaleString()}</b> — לזקוף כתשלום מראש לחודשים הבאים</span>
                   </label>
+                  {receiptModal.prepay && ownedForPrepay.length > 0 && (
+                    <label className="flex items-center gap-2 text-xs text-sky-800 mt-2 mr-6">
+                      עבור:
+                      <select value={prepayUnit.id} onChange={e => setForm({ prepayUnitId: Number(e.target.value) })}
+                        className="border border-sky-200 rounded-lg px-1.5 py-0.5 text-xs bg-white focus:outline-none">
+                        <option value={tenant.id}>הדירה שלו ({tenant.apt})</option>
+                        {ownedForPrepay.map(a => <option key={a.id} value={a.id}>דירה {a.apt}{a.name && !a.vacant ? ` (${a.name})` : ''}</option>)}
+                      </select>
+                    </label>
+                  )}
                   {receiptModal.prepay && plan.length > 0 && (
                     <p className="text-xs text-sky-700 mt-1.5 mr-6">
                       {plan.map(pl => `${pl.month} ${pl.year}${pl.full ? '' : ` (חלקי ₪${pl.amount.toLocaleString()})`}`).join(' · ')}
@@ -3741,12 +3857,12 @@ export default function App() {
             <textarea value={emailText} onChange={e => setEmailText(e.target.value)} placeholder="כתוב את ההודעה כאן..."
               className="w-full border rounded-xl p-3 text-sm h-32 resize-none focus:outline-none focus:ring-1 focus:ring-teal-400" dir="rtl" />
             <p className="text-xs text-gray-400 mt-2">
-              ייפתח מייל אחד ב-Gmail עם {tenants.filter(t => t.email).length} דיירים בהעתק מוסתר (BCC) — אף דייר לא יראה את הכתובות של האחרים
+              ייפתח מייל אחד ב-Gmail עם {tenants.filter(t => t.email && !t.ownerId).length} דיירים בהעתק מוסתר (BCC) — אף דייר לא יראה את הכתובות של האחרים. שוכרים לא נכללים (הפנייה היא לבעל הדירה)
             </p>
             <div className="flex gap-2 mt-4 justify-end">
               <button onClick={() => setShowEmailModal(false)} className="border px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">ביטול</button>
-              <button disabled={!emailText.trim() || tenants.filter(t => t.email).length === 0} onClick={() => {
-                const bcc = [...new Set(tenants.filter(t => t.email).map(t => t.email.trim()))].join(',');
+              <button disabled={!emailText.trim() || tenants.filter(t => t.email && !t.ownerId).length === 0} onClick={() => {
+                const bcc = [...new Set(tenants.filter(t => t.email && !t.ownerId).map(t => t.email.trim()))].join(',');
                 openMail({ bcc, subject: emailSubject || settings.buildingName || 'ועד הבית', body: emailText });
                 setShowEmailModal(false); setEmailText(''); setEmailSubject('');
               }} className="bg-sky-500 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-sky-600 transition disabled:opacity-50 flex items-center gap-1">
@@ -3759,7 +3875,8 @@ export default function App() {
 
       {showRemindersModal && (() => {
         const tpl = getReminderTemplate();
-        const debtors = [...tenants].filter(t => calcDebt(t) > 0).sort((a, b) => Number(a.apt) - Number(b.apt));
+        // דירות מושכרות לא מקבלות תזכורת בנפרד - החוב שלהן כלול בתזכורת לבעל הדירה
+        const debtors = [...tenants].filter(t => !t.ownerId && payerTotal(t, tenants) > 0).sort((a, b) => Number(a.apt) - Number(b.apt));
         const withEmail = debtors.filter(t => t.email);
         const noEmail = debtors.filter(t => !t.email);
         return (
@@ -3779,7 +3896,7 @@ export default function App() {
                       <span className="w-8 h-8 rounded-full bg-teal-50 text-teal-800 font-bold text-sm flex items-center justify-center shrink-0">{t.apt}</span>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-gray-800 truncate">{t.name}</div>
-                        <div className="text-xs text-red-500 font-semibold">₪{calcDebt(t).toLocaleString()} חוב</div>
+                        <div className="text-xs text-red-500 font-semibold">₪{payerTotal(t, tenants).toLocaleString()} חוב{getOwnedApartments(t.id).length > 0 ? ' (כולל הדירות שלו)' : ''}</div>
                       </div>
                       <button onClick={() => {
                         openMail({ to: t.email, subject: tpl.name, body: renderTemplateForTenant(tpl, t) });
