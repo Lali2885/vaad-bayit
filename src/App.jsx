@@ -321,6 +321,22 @@ function nextMonthsFromNow(count) {
   return out;
 }
 
+// רכיב יצירת האקסל (ExcelJS) נטען רק כשלוחצים "הורד אקסל" - כדי לא להגדיל את האפליקציה
+let excelJsPromise = null;
+function loadExcelJS() {
+  if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if (!excelJsPromise) {
+    excelJsPromise = new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+      el.onload = () => resolve(window.ExcelJS);
+      el.onerror = () => { excelJsPromise = null; reject(new Error('טעינת רכיב האקסל נכשלה - בדקי חיבור לאינטרנט ונסי שוב')); };
+      document.head.appendChild(el);
+    });
+  }
+  return excelJsPromise;
+}
+
 function fmtGregDate(iso) {
   return iso ? iso.split('-').reverse().join('/') : '';
 }
@@ -979,6 +995,30 @@ export default function App() {
     }
   }
 
+  // חיובים שאין להם שנה (חיוב נוסף ידני, או הוצאה חריגה שנמחקה) - מופיעים בכל מסמך בבלוק "חיובים נוספים",
+  // כדי שהיתרה במסמך תהיה זהה ליתרה בכרטיס
+  function undatedDebtCharges(tenant) {
+    const expenseIds = new Set((settings.extraordinaryExpenses || []).map(e => e.id));
+    return (tenant.charges || []).filter(c => c.status === 'חוב' && (!c.expenseId || !expenseIds.has(c.expenseId)));
+  }
+
+  // בדירה מושכרת: עמודת "על חשבון" (השוכר / בעל הדירה). אחרת null.
+  function billLabelsFor(unit) {
+    if (!unit.ownerId) return null;
+    const lab = v => v === 'owner' ? 'בעל הדירה' : 'השוכר';
+    return { monthly: lab(unit.monthlyBillTo || 'occupant'), charge: c => lab(chargeBillTo(c)) };
+  }
+
+  // פירוק החובות שבמסמך: כמה לגבות מהשוכר וכמה על חשבון בעל הדירה
+  function statementSplit(unit, payments, charges) {
+    const monthly = payments.reduce((s, p) => s + p.amount - (p.paidAmount || 0), 0);
+    const monthlyOwner = unit.monthlyBillTo === 'owner';
+    let occupant = monthlyOwner ? 0 : monthly;
+    let owner = monthlyOwner ? monthly : 0;
+    charges.forEach(c => { if (chargeBillTo(c) === 'owner') owner += c.amount; else occupant += c.amount; });
+    return { occupant, owner };
+  }
+
   function getTenantStatementData(tenant, years) {
     const expenseYearMap = new Map((settings.extraordinaryExpenses || []).map(e => [e.id, e.hebrewYear]));
 
@@ -1004,10 +1044,13 @@ export default function App() {
       return { year, paidPayments, debtPayments, debtCharges, yearPaidTotal, yearDebtTotal };
     });
 
+    const otherCharges = undatedDebtCharges(tenant);
     const totalPaid = yearsData.reduce((s, y) => s + y.yearPaidTotal, 0);
-    const totalDebtAmt = yearsData.reduce((s, y) => s + y.yearDebtTotal, 0);
+    const totalDebtAmt = yearsData.reduce((s, y) => s + y.yearDebtTotal, 0) + otherCharges.reduce((s, c) => s + c.amount, 0);
+    const allDebtPayments = yearsData.flatMap(y => y.debtPayments);
+    const allDebtCharges = [...yearsData.flatMap(y => y.debtCharges), ...otherCharges];
 
-    return { yearsData, totalPaid, totalDebtAmt };
+    return { yearsData, otherCharges, totalPaid, totalDebtAmt, allDebtPayments, allDebtCharges };
   }
 
   function getTenantStatementDataByOccupant(tenant, years) {
@@ -1016,8 +1059,10 @@ export default function App() {
     const yearRank = y => HEBREW_YEAR_TO_NUMERIC[y] || 0;
 
     const debtPayments = tenant.payments.filter(p => years.has(p.hebrewYear) && p.status === 'חוב' && (p.amount - (p.paidAmount || 0)) > 0);
-    const debtCharges = (tenant.charges || []).filter(c =>
-      c.expenseId && c.status === 'חוב' && years.has(expenseYearMap.get(c.expenseId)));
+    const debtCharges = [
+      ...(tenant.charges || []).filter(c => c.expenseId && c.status === 'חוב' && years.has(expenseYearMap.get(c.expenseId))),
+      ...undatedDebtCharges(tenant),
+    ];
 
     const occupantOf = x => x.occupantName || tenant.name;
     const names = [...new Set([...debtPayments.map(occupantOf), ...debtCharges.map(occupantOf)])];
@@ -1032,7 +1077,7 @@ export default function App() {
     }).sort((a, b) => (b.isCurrent - a.isCurrent) || b.total - a.total);
 
     const totalDebtAmt = occupantsData.reduce((s, o) => s + o.total, 0);
-    return { occupantsData, totalDebtAmt };
+    return { occupantsData, totalDebtAmt, allDebtPayments: debtPayments, allDebtCharges: debtCharges };
   }
 
   function buildTenantStatementText(tenantRaw, mode = 'full', years, occupantFilter = '') {
@@ -1040,30 +1085,38 @@ export default function App() {
     const debtsOnly = mode === 'debtsOnly';
     const effTenant = filterTenantByOccupant(tenant, occupantFilter);
     const yearsToUse = years && years.size > 0 ? years : new Set(effTenant.payments.map(p => p.hebrewYear));
+    const bill = billLabelsFor(tenantRaw);
+    const mTag = bill ? ` (על חשבון ${bill.monthly})` : '';
+    const cTag = c => bill ? ` (על חשבון ${bill.charge(c)})` : '';
+    const splitLines = data => {
+      if (!bill) return [];
+      const sp = statementSplit(tenantRaw, data.allDebtPayments, data.allDebtCharges);
+      return [`  מתוך זה — לגבות מהשוכר: ₪${sp.occupant.toLocaleString()} · על חשבון בעל הדירה: ₪${sp.owner.toLocaleString()}`];
+    };
 
     if (mode === 'byOccupant') {
-      const { occupantsData, totalDebtAmt } = getTenantStatementDataByOccupant(effTenant, yearsToUse);
+      const data = getTenantStatementDataByOccupant(effTenant, yearsToUse);
       const lines = ['פירוט חובות לפי שוכר:', ''];
-      if (occupantsData.length === 0) {
+      if (data.occupantsData.length === 0) {
         lines.push('✓ אין חובות פתוחים');
       } else {
-        occupantsData.forEach(({ name, isCurrent, payments, charges, total }) => {
+        data.occupantsData.forEach(({ name, isCurrent, payments, charges, total }) => {
           lines.push(`${name}${isCurrent ? ' (שוכר נוכחי)' : ' (שוכר קודם)'}:`);
-          payments.forEach(p => lines.push(`    ועד בית — ${p.hebrewMonth} ${p.hebrewYear}: ₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}${p.note ? ' — ' + p.note : ''}`));
-          charges.forEach(c => lines.push(`    ${c.description || 'הוצאה חריגה'}: ₪${c.amount.toLocaleString()}${c.note ? ' — ' + c.note : ''}`));
+          payments.forEach(p => lines.push(`    ועד בית — ${p.hebrewMonth} ${p.hebrewYear}: ₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}${mTag}${p.note ? ' — ' + p.note : ''}`));
+          charges.forEach(c => lines.push(`    ${c.description || 'חיוב'}: ₪${c.amount.toLocaleString()}${cTag(c)}${c.note ? ' — ' + c.note : ''}`));
           lines.push(`  סה"כ חוב — ${name}: ₪${total.toLocaleString()}`);
           lines.push('');
         });
       }
-      lines.push(`יתרת חוב לתשלום: ₪${totalDebtAmt.toLocaleString()}`);
+      lines.push(`יתרת חוב לתשלום: ₪${data.totalDebtAmt.toLocaleString()}`);
+      lines.push(...splitLines(data));
       return lines.join('\n');
     }
 
-    const { yearsData, totalPaid, totalDebtAmt } = getTenantStatementData(effTenant, yearsToUse);
-
+    const data = getTenantStatementData(effTenant, yearsToUse);
     const lines = [debtsOnly ? 'פירוט חובות:' : 'פירוט תשלומים וחובות:', ''];
 
-    yearsData.forEach(({ year, paidPayments, debtPayments, debtCharges, yearPaidTotal, yearDebtTotal }) => {
+    data.yearsData.forEach(({ year, paidPayments, debtPayments, debtCharges, yearPaidTotal, yearDebtTotal }) => {
       lines.push(`שנת ${year}:`);
       if (!debtsOnly) {
         if (paidPayments.length > 0) {
@@ -1076,17 +1129,23 @@ export default function App() {
       }
       if (debtPayments.length > 0 || debtCharges.length > 0) {
         lines.push('  חובות פתוחים:');
-        debtPayments.forEach(p => lines.push(`    ועד בית — ${p.hebrewMonth}: ₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}${p.note ? ' — ' + p.note : ''}`));
-        debtCharges.forEach(c => lines.push(`    ${c.description || 'הוצאה חריגה'}: ₪${c.amount.toLocaleString()}${c.note ? ' — ' + c.note : ''}`));
+        debtPayments.forEach(p => lines.push(`    ועד בית — ${p.hebrewMonth}: ₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}${mTag}${p.note ? ' — ' + p.note : ''}`));
+        debtCharges.forEach(c => lines.push(`    ${c.description || 'הוצאה חריגה'}: ₪${c.amount.toLocaleString()}${cTag(c)}${c.note ? ' — ' + c.note : ''}`));
         lines.push(`  סה"כ חוב לשנת ${year}: ₪${yearDebtTotal.toLocaleString()}`);
       } else {
         lines.push('  ✓ אין חובות פתוחים');
       }
       lines.push('');
     });
+    if (data.otherCharges.length > 0) {
+      lines.push('חיובים נוספים:');
+      data.otherCharges.forEach(c => lines.push(`    ${c.description || 'חיוב'}: ₪${c.amount.toLocaleString()}${cTag(c)}${c.note ? ' — ' + c.note : ''}`));
+      lines.push('');
+    }
 
-    if (!debtsOnly) lines.push(`סה"כ שולם (כולל): ₪${totalPaid.toLocaleString()}`);
-    lines.push(`יתרת חוב לתשלום: ₪${totalDebtAmt.toLocaleString()}`);
+    if (!debtsOnly) lines.push(`סה"כ שולם (כולל): ₪${data.totalPaid.toLocaleString()}`);
+    lines.push(`יתרת חוב לתשלום: ₪${data.totalDebtAmt.toLocaleString()}`);
+    lines.push(...splitLines(data));
 
     return lines.join('\n');
   }
@@ -1103,7 +1162,26 @@ export default function App() {
     return lines.join('\n');
   }
 
-  function renderYearsBlocksHtml(yearsData, debtsOnly) {
+  function debtRowsHtml(payments, charges, bill, withYear) {
+    return `${payments.map(p => `<tr>
+              <td>ועד בית — ${p.hebrewMonth}${withYear ? ` ${p.hebrewYear}` : ''}</td>
+              ${bill ? `<td>${bill.monthly}</td>` : ''}
+              <td class="debt">₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}</td>
+              <td>${p.note || ''}</td>
+            </tr>`).join('')}
+            ${charges.map(c => `<tr>
+              <td>${c.description || 'חיוב'}</td>
+              ${bill ? `<td>${bill.charge(c)}</td>` : ''}
+              <td class="debt">₪${c.amount.toLocaleString()}</td>
+              <td>${c.note || ''}</td>
+            </tr>`).join('')}`;
+  }
+
+  function debtTableHeadHtml(bill) {
+    return `<thead><tr><th>תיאור</th>${bill ? '<th>על חשבון</th>' : ''}<th>סכום לתשלום</th><th>הערות</th></tr></thead>`;
+  }
+
+  function renderYearsBlocksHtml(yearsData, debtsOnly, bill = null, otherCharges = []) {
     return yearsData.map(({ year, paidPayments, debtPayments, debtCharges, yearPaidTotal, yearDebtTotal }) => `
   <div class="year-block">
     <div class="year-title">שנת ${year}</div>
@@ -1128,18 +1206,9 @@ export default function App() {
     <div class="section-title">חובות פתוחים</div>
     ${debtPayments.length > 0 || debtCharges.length > 0
       ? `<table>
-          <thead><tr><th>תיאור</th><th>סכום לתשלום</th><th>הערות</th></tr></thead>
+          ${debtTableHeadHtml(bill)}
           <tbody>
-            ${debtPayments.map(p => `<tr>
-              <td>ועד בית — ${p.hebrewMonth}</td>
-              <td class="debt">₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}</td>
-              <td>${p.note || ''}</td>
-            </tr>`).join('')}
-            ${debtCharges.map(c => `<tr>
-              <td>${c.description || 'הוצאה חריגה'}</td>
-              <td class="debt">₪${c.amount.toLocaleString()}</td>
-              <td>${c.note || ''}</td>
-            </tr>`).join('')}
+            ${debtRowsHtml(debtPayments, debtCharges, bill, false)}
           </tbody>
         </table>`
       : `<p class="empty" style="color:#16a34a">✓ אין חובות פתוחים</p>`}
@@ -1147,27 +1216,28 @@ export default function App() {
       ? `<div class="year-subtotal">סה"כ חוב לשנת ${year}: <span class="debt">₪${yearDebtTotal.toLocaleString()}</span></div>`
       : ''}
   </div>
-  `).join('');
+  `).join('') + (otherCharges.length > 0 ? `
+  <div class="year-block">
+    <div class="year-title">חיובים נוספים</div>
+    <table>
+      ${debtTableHeadHtml(bill)}
+      <tbody>
+        ${debtRowsHtml([], otherCharges, bill, false)}
+      </tbody>
+    </table>
+    <div class="year-subtotal">סה"כ חיובים נוספים: <span class="debt">₪${otherCharges.reduce((s, c) => s + c.amount, 0).toLocaleString()}</span></div>
+  </div>` : '');
   }
 
-  function renderOccupantsBlocksHtml(occupantsData) {
+  function renderOccupantsBlocksHtml(occupantsData, bill = null) {
     if (occupantsData.length === 0) return `<p class="empty" style="color:#16a34a">✓ אין חובות פתוחים</p>`;
     return occupantsData.map(({ name, isCurrent, payments, charges, total }) => `
   <div class="year-block">
     <div class="year-title">${name}${isCurrent ? ' (שוכר נוכחי)' : ' (שוכר קודם)'}</div>
     <table>
-      <thead><tr><th>תיאור</th><th>סכום לתשלום</th><th>הערות</th></tr></thead>
+      ${debtTableHeadHtml(bill)}
       <tbody>
-        ${payments.map(p => `<tr>
-          <td>ועד בית — ${p.hebrewMonth} ${p.hebrewYear}</td>
-          <td class="debt">₪${(p.amount - (p.paidAmount || 0)).toLocaleString()}</td>
-          <td>${p.note || ''}</td>
-        </tr>`).join('')}
-        ${charges.map(c => `<tr>
-          <td>${c.description || 'הוצאה חריגה'}</td>
-          <td class="debt">₪${c.amount.toLocaleString()}</td>
-          <td>${c.note || ''}</td>
-        </tr>`).join('')}
+        ${debtRowsHtml(payments, charges, bill, true)}
       </tbody>
     </table>
     <div class="year-subtotal">סה"כ חוב — ${name}: <span class="debt">₪${total.toLocaleString()}</span></div>
@@ -1184,19 +1254,27 @@ export default function App() {
     const displayName = occupantFilter || tenant.name;
     const effTenant = filterTenantByOccupant(tenant, occupantFilter);
 
+    const mainBill = billLabelsFor(tenantRaw);
     const mainData = byOccupant ? getTenantStatementDataByOccupant(effTenant, years) : getTenantStatementData(effTenant, years);
     const totalPaid = byOccupant ? 0 : mainData.totalPaid;
     const totalDebtAmt = mainData.totalDebtAmt;
-    const bodyHtml = byOccupant ? renderOccupantsBlocksHtml(mainData.occupantsData) : renderYearsBlocksHtml(mainData.yearsData, debtsOnly);
+    const bodyHtml = byOccupant ? renderOccupantsBlocksHtml(mainData.occupantsData, mainBill) : renderYearsBlocksHtml(mainData.yearsData, debtsOnly, mainBill, mainData.otherCharges);
+    const splitRowsHtml = (unit, data) => {
+      if (!unit.ownerId || data.totalDebtAmt <= 0) return '';
+      const sp = statementSplit(unit, data.allDebtPayments, data.allDebtCharges);
+      return `<div class="summary-row" style="font-size:13px"><span>מתוך זה — לגבות מהשוכר</span><span>₪${sp.occupant.toLocaleString()}</span></div>
+        <div class="summary-row" style="font-size:13px"><span>מתוך זה — על חשבון בעל הדירה</span><span>₪${sp.owner.toLocaleString()}</span></div>`;
+    };
 
     const ownedApts = includeOwned ? getOwnedApartments(tenant.id) : [];
     const ownedSections = ownedApts.map(apt => {
       const effApt = filterTenantByOccupant(unitView(apt, tenants), occupantFilter);
       const aptYears = new Set(effApt.payments.map(p => p.hebrewYear));
       const aptData = byOccupant ? getTenantStatementDataByOccupant(effApt, aptYears) : getTenantStatementData(effApt, aptYears);
-      const aptBodyHtml = byOccupant ? renderOccupantsBlocksHtml(aptData.occupantsData) : renderYearsBlocksHtml(aptData.yearsData, debtsOnly);
+      const aptBill = billLabelsFor(apt);
+      const aptBodyHtml = byOccupant ? renderOccupantsBlocksHtml(aptData.occupantsData, aptBill) : renderYearsBlocksHtml(aptData.yearsData, debtsOnly, aptBill, aptData.otherCharges);
       const aptPaid = byOccupant ? 0 : aptData.totalPaid;
-      return { apt, aptBodyHtml, aptPaid, aptDebt: aptData.totalDebtAmt };
+      return { apt, aptBodyHtml, aptPaid, aptDebt: aptData.totalDebtAmt, aptSplitHtml: splitRowsHtml(apt, aptData) };
     });
 
     const html = `<!DOCTYPE html>
@@ -1267,22 +1345,29 @@ export default function App() {
   <div class="summary">
     ${debtsOnly || byOccupant ? '' : `<div class="summary-row"><span>סה"כ שולם</span><span class="paid">₪${totalPaid.toLocaleString()}</span></div>`}
     <div class="summary-row summary-total"><span>יתרת חוב לתשלום</span><span>₪${totalDebtAmt.toLocaleString()}</span></div>
+    ${splitRowsHtml(tenantRaw, mainData)}
   </div>
 
   ${ownedSections.length > 0 ? `
   <div style="margin-top: 44px; padding-top: 26px; border-top: 3px solid #d97706;">
     <h2 style="font-size: 18px; font-weight: bold; color: #b45309; margin-bottom: 4px;">דירות מושכרות בבעלותך</h2>
     <p style="font-size: 12px; color: #92400e; margin-bottom: 18px;">חובת התשלום עבור הדירות הבאות חלה עלייך כבעל/ת הדירה</p>
-    ${ownedSections.map(({ apt, aptBodyHtml, aptPaid, aptDebt }) => `
+    ${ownedSections.map(({ apt, aptBodyHtml, aptPaid, aptDebt, aptSplitHtml }) => `
     <div style="margin-bottom: 30px;">
       <div style="font-size: 15px; font-weight: bold; color: #92400e; background: #fffbeb; border-right: 4px solid #d97706; border-radius: 6px; padding: 8px 14px; margin-bottom: 8px;">דירה ${apt.apt} — ${apt.name}</div>
       ${aptBodyHtml}
       <div class="summary" style="margin-top: 12px;">
         ${debtsOnly || byOccupant ? '' : `<div class="summary-row"><span>סה"כ שולם</span><span class="paid">₪${aptPaid.toLocaleString()}</span></div>`}
         <div class="summary-row summary-total" style="color: ${aptDebt > 0 ? '#dc2626' : '#16a34a'};"><span>יתרת חוב לתשלום</span><span>₪${aptDebt.toLocaleString()}</span></div>
+        ${aptSplitHtml}
       </div>
     </div>
     `).join('')}
+    <div class="summary" style="border-color:#d97706;background:#fffbeb">
+      <div class="summary-row summary-total" style="border-top:none;margin-top:0;padding-top:0;color:${totalDebtAmt + ownedSections.reduce((s, x) => s + x.aptDebt, 0) > 0 ? '#dc2626' : '#16a34a'}">
+        <span>סה"כ לתשלום — כולל כל הדירות</span><span>₪${(totalDebtAmt + ownedSections.reduce((s, x) => s + x.aptDebt, 0)).toLocaleString()}</span>
+      </div>
+    </div>
   </div>
   ` : ''}
 
@@ -1437,6 +1522,28 @@ export default function App() {
     const totalDebtSum = sorted.reduce((s, t) => s + unitDebt(t, tenants), 0);
     const totalCreditSum = sorted.reduce((s, t) => s + calcCredit(t), 0);
 
+    // סיכום לפי בעלי דירות מושכרות: כמה כל אחד חייב בסך הכל (הדירה שלו + הדירות שהוא משכיר)
+    const owners = sorted.filter(t => !t.ownerId && getOwnedApartments(t.id).length > 0);
+    const ownersSummaryHtml = owners.length === 0 ? '' : `
+    <h3 style="color:#b45309;font-size:15px;margin:24px 0 8px">סיכום לפי בעלי דירות מושכרות</h3>
+    <table><thead><tr><th>בעל הדירה</th><th>הדירה שלו</th><th>דירות מושכרות</th><th>לגבות מהשוכרים</th><th>על חשבונו (בדירות)</th><th>סה"כ לתשלום</th></tr></thead>
+    <tbody>${owners.map(o => {
+      const apts = [...getOwnedApartments(o.id)].sort((a, b) => Number(a.apt) - Number(b.apt));
+      const own = unitDebt(o, tenants);
+      const splits = apts.map(a => unitDebtSplit(a));
+      const occ = splits.reduce((s, x) => s + x.occupant, 0);
+      const ownr = splits.reduce((s, x) => s + x.owner, 0);
+      const total = own + occ + ownr;
+      return `<tr class="${total > 0 ? 'unpaid' : 'paid'}">
+        <td>${o.name} (דירה ${o.apt})</td>
+        <td>₪${own.toLocaleString()}</td>
+        <td>${apts.map(a => a.apt).join(', ')}</td>
+        <td>₪${occ.toLocaleString()}</td>
+        <td>₪${ownr.toLocaleString()}</td>
+        <td style="font-weight:bold;color:${total > 0 ? '#dc2626' : '#16a34a'}">₪${total.toLocaleString()}</td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+
     const html = `<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="UTF-8">
     <title>דוח מצב דיירים</title>
     <style>
@@ -1470,6 +1577,8 @@ export default function App() {
       <td colspan="5">סה"כ</td>
       <td>${totalDebtSum > 0 ? `<span style="color:#dc2626">₪${totalDebtSum.toLocaleString()} חוב</span>` : ''}${totalCreditSum > 0 ? `<span style="color:#16a34a"> ₪${totalCreditSum.toLocaleString()} זכות</span>` : ''}${totalDebtSum === 0 && totalCreditSum === 0 ? '—' : ''}</td>
     </tr></tfoot></table>
+
+    ${ownersSummaryHtml}
 
     <div class="footer">${settings.buildingName || ''} | הופק ב-${dateStr}</div>
     <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 600); }<\/script>
@@ -1574,6 +1683,140 @@ export default function App() {
     if (!w) return;
     w.document.write(html);
     w.document.close();
+  }
+
+  // קובץ אקסל לבעל דירה: סיכום, גיליון לכל דירה (כל ההיסטוריה) וקבלות.
+  // מדירה מושכרת - הקובץ יוצא לבעל הדירה, כמו כל ההתנהלות.
+  async function downloadOwnerExcel(fromTenant) {
+    const payer = (fromTenant.ownerId && getOwnerTenant(fromTenant)) || fromTenant;
+    const units = [payer, ...[...getOwnedApartments(payer.id)].sort((a, b) => Number(a.apt) - Number(b.apt))];
+    let ExcelJS;
+    try { ExcelJS = await loadExcelJS(); } catch (e) { alert(e.message); return; }
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = settings.buildingName || 'ועד הבית';
+    const { month: curM, year: curY } = getCurrentHebrewDate();
+    const today = new Date().toLocaleDateString('he-IL');
+    const TEAL = 'FF0F766E';
+    const MONEY = '₪#,##0;-₪#,##0';
+    const fill = argb => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+    const thin = { style: 'thin', color: { argb: 'FFE5E7EB' } };
+    const border = { top: thin, bottom: thin, left: thin, right: thin };
+
+    const newSheet = (name, title, widths) => {
+      const ws = wb.addWorksheet(name.slice(0, 31), { views: [{ rightToLeft: true, state: 'frozen', ySplit: 4 }] });
+      widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+      ws.mergeCells(1, 1, 1, widths.length);
+      ws.getCell(1, 1).value = title;
+      ws.getCell(1, 1).font = { bold: true, size: 14, color: { argb: TEAL } };
+      ws.mergeCells(2, 1, 2, widths.length);
+      ws.getCell(2, 1).value = `${settings.buildingName || ''} · הופק ${today} (${curM} ${curY})`;
+      ws.getCell(2, 1).font = { color: { argb: 'FF6B7280' } };
+      return ws;
+    };
+    const addHeader = (ws, labels) => {
+      const row = ws.getRow(4);
+      row.values = labels;
+      row.height = 22;
+      row.eachCell(c => {
+        c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        c.fill = fill(TEAL);
+        c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        c.border = border;
+      });
+    };
+    const addTotalRow = (ws, label, sumCols, firstRow, lastRow) => {
+      const row = ws.addRow([]);
+      row.getCell(1).value = label;
+      sumCols.forEach(col => {
+        const L = ws.getColumn(col).letter;
+        row.getCell(col).value = lastRow >= firstRow ? { formula: `SUM(${L}${firstRow}:${L}${lastRow})` } : 0;
+        row.getCell(col).numFmt = MONEY;
+      });
+      row.eachCell({ includeEmpty: true }, c => { c.font = { bold: true }; c.fill = fill('FFF1F5F9'); c.border = border; });
+    };
+
+    // ---- סיכום ----
+    const sum = newSheet('סיכום', `${payer.name} — מצב חשבון ועד בית`, [16, 22, 18, 22, 16]);
+    addHeader(sum, ['דירה', 'שוכר', 'לגבות מהשוכר', 'על חשבון בעל הדירה', 'סה״כ חוב']);
+    units.forEach(u => {
+      const isRental = u.id !== payer.id;
+      const split = isRental ? unitDebtSplit(u) : { occupant: 0, owner: unitDebt(u, tenants), total: unitDebt(u, tenants) };
+      const row = sum.addRow([
+        isRental ? `דירה ${u.apt}` : `דירה ${u.apt} (מגורים)`,
+        isRental ? (u.vacant ? 'ריקה' : (u.name || '')) : '—',
+        split.occupant, split.owner, split.total,
+      ]);
+      [3, 4, 5].forEach(c => { row.getCell(c).numFmt = MONEY; });
+      row.eachCell(c => { c.border = border; });
+      if (split.total > 0) row.getCell(5).font = { bold: true, color: { argb: 'FFDC2626' } };
+    });
+    addTotalRow(sum, 'סה״כ', [3, 4, 5], 5, 4 + units.length);
+
+    // ---- גיליון לכל דירה ----
+    const expById = new Map((settings.extraordinaryExpenses || []).map(e => [e.id, e]));
+    units.forEach(u => {
+      const isRental = u.id !== payer.id;
+      const ws = newSheet(isRental ? `דירה ${u.apt}` : `דירה ${u.apt} (מגורים)`,
+        `דירה ${u.apt}${isRental ? ` — שוכר: ${u.vacant ? 'ריקה' : (u.name || '')}` : ` — ${payer.name}`}`,
+        [12, 24, 16, 14, 12, 12, 12, 14, 24, 26]);
+      addHeader(ws, ['סוג', 'תקופה / תיאור', 'שוכר באותה תקופה', 'על חשבון', 'לתשלום', 'שולם', 'יתרה', 'סטטוס', 'הערה', 'רישום שלי']);
+      const rows = [];
+      [...u.payments]
+        .sort((a, b) => monthSortKey(a.hebrewMonth, a.hebrewYear) - monthSortKey(b.hebrewMonth, b.hebrewYear))
+        .forEach(p => {
+          const paid = p.status === 'שולם' ? (p.paidAmount || p.amount) : (p.paidAmount || 0);
+          const remaining = p.status === 'חוב' ? Math.max(0, p.amount - (p.paidAmount || 0)) : 0;
+          const status = p.status === 'שולם' ? 'שולם' : p.status === 'זכות' ? 'שולם מראש' : paid > 0 ? 'שולם חלקית' : 'לא שולם';
+          rows.push({ values: ['דמי ועד', `${p.hebrewMonth} ${p.hebrewYear}`, p.occupantName || u.name || '',
+            isRental ? ((u.monthlyBillTo || 'occupant') === 'owner' ? 'בעל הדירה' : 'השוכר') : '',
+            p.amount, paid, remaining, status, p.note || ''], remaining });
+        });
+      unitCharges(u, tenants).forEach(({ c }) => {
+        const exp = c.expenseId ? expById.get(c.expenseId) : null;
+        const when = exp && (exp.hebrewMonth || exp.hebrewYear) ? ` (${[exp.hebrewDay, exp.hebrewMonth, exp.hebrewYear].filter(Boolean).join(' ')})` : '';
+        const paid = c.status === 'שולם' ? c.amount : 0;
+        const remaining = c.status === 'חוב' ? c.amount : 0;
+        rows.push({ values: [c.expenseId ? 'הוצאה חריגה' : 'חיוב נוסף', `${c.description || 'חיוב'}${when}`, c.occupantName || '',
+          isRental ? (chargeBillTo(c) === 'owner' ? 'בעל הדירה' : 'השוכר') : '',
+          c.amount, paid, remaining, c.status === 'שולם' ? 'שולם' : 'לא שולם', c.note || ''], remaining });
+      });
+      rows.forEach(({ values, remaining }) => {
+        const row = ws.addRow(values);
+        [5, 6, 7].forEach(col => { row.getCell(col).numFmt = MONEY; });
+        row.eachCell({ includeEmpty: true }, c => { c.border = border; });
+        for (let col = 1; col <= 9; col++) row.getCell(col).fill = fill(remaining > 0 ? 'FFFEF2F2' : 'FFF0FDF4');
+        if (remaining > 0) row.getCell(7).font = { bold: true, color: { argb: 'FFDC2626' } };
+      });
+      addTotalRow(ws, 'סה״כ', [5, 6, 7], 5, 4 + rows.length);
+    });
+
+    // ---- קבלות ----
+    const receipts = units.flatMap(u => (u.receipts || []).map(r => ({ r, u })));
+    if (receipts.length > 0) {
+      const ws = newSheet('קבלות תשלום', `${payer.name} — קבלות תשלום`, [13, 12, 14, 60, 22, 10]);
+      addHeader(ws, ['תאריך', 'סכום', 'אמצעי תשלום', 'עבור', 'הערה', 'סטטוס']);
+      receipts.sort((a, b) => b.r.id - a.r.id).forEach(({ r, u }) => {
+        const prefix = u.id !== payer.id ? `דירה ${u.apt} · ` : '';
+        const row = ws.addRow([fmtGregDate(r.date), r.amount, r.method,
+          r.allocations.map(a => `${prefix}${a.label}: ₪${a.amount.toLocaleString()}`).join(' | '), r.note || '', r.cancelled ? 'בוטלה' : '']);
+        row.getCell(2).numFmt = MONEY;
+        row.getCell(4).alignment = { wrapText: true, vertical: 'top' };
+        row.eachCell({ includeEmpty: true }, c => { c.border = border; });
+        if (r.cancelled) row.eachCell(c => { c.font = { strike: true, color: { argb: 'FF9CA3AF' } }; });
+      });
+    }
+
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ועד בית - ${payer.name} - ${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   function openSettings() {
@@ -2927,6 +3170,9 @@ export default function App() {
                     setShowStatementModal(selectedTenant);
                   }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
                     <FileText size={14} /> הורד מסמך
+                  </button>
+                  <button onClick={() => downloadOwnerExcel(selectedTenant)} className="w-full bg-green-700 hover:bg-green-600 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
+                    <FileDown size={14} /> {selectedTenant.ownerId ? 'הורד אקסל לבעל הדירה' : 'הורד אקסל'}
                   </button>
                   <button onClick={() => printReminderSlips(selectedTenant)} className="w-full border border-gray-200 text-gray-600 hover:border-teal-400 hover:text-teal-700 py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
                     <Bell size={14} /> {selectedTenant.ownerId ? 'הדפס פתק לבעל הדירה' : 'הדפס פתק תזכורת'}
