@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { Home, ReceiptText, Building, ChevronRight, Mail, Bell, Plus, Pencil, Trash2, X, Check, Settings, Upload, ImageOff, MessageSquare, Banknote, LogOut, LayoutDashboard, Wallet, TrendingDown, Calendar, FileText, Zap, CreditCard, RefreshCw, ArrowRightLeft, FileDown, Users, ChevronDown } from 'lucide-react';
-import emailjs from '@emailjs/browser';
 import { supabase, testConnection } from './supabase';
 
 const INITIAL_SETTINGS = {
@@ -677,9 +676,8 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const [dbError, setDbError] = useState(null);
-  const [isSending, setIsSending] = useState(false);
-  const [sendResult, setSendResult] = useState(null);
-  const [isSendingReminders, setIsSendingReminders] = useState(false);
+  const [showRemindersModal, setShowRemindersModal] = useState(false);
+  const [openedReminderIds, setOpenedReminderIds] = useState(new Set());
   const [emailSubject, setEmailSubject] = useState('');
   const [tenantMsgSubject, setTenantMsgSubject] = useState('');
   const [receiptModal, setReceiptModal] = useState(null);
@@ -944,19 +942,18 @@ export default function App() {
     await supabase.auth.signOut();
   }
 
-  async function sendEmail(toEmail, subject, message) {
-    const es = settings.emailSettings || {};
-    if (!es.serviceId || !es.templateId || !es.publicKey) {
-      throw new Error('חסרות הגדרות מייל — אנא מלאי פרטי EmailJS בהגדרות המערכת.');
+  // פותח מייל מוכן לשליחה: במחשב - Gmail בדפדפן, בטלפון - אפליקציית המייל (Gmail).
+  // המייל יוצא מהתיבה של המשתמשת ונשמר אצלה ב"דואר יוצא".
+  function openMail({ to = '', bcc = '', subject = '', body = '' }) {
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const enc = encodeURIComponent;
+    if (isMobile) {
+      const params = [bcc && `bcc=${enc(bcc)}`, `subject=${enc(subject)}`, `body=${enc(body)}`].filter(Boolean).join('&');
+      window.location.href = `mailto:${enc(to)}?${params}`;
+    } else {
+      const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${enc(to)}${bcc ? `&bcc=${enc(bcc)}` : ''}&su=${enc(subject)}&body=${enc(body)}`;
+      window.open(url, '_blank');
     }
-    await emailjs.send(es.serviceId, es.templateId, {
-      to_email: toEmail,
-      subject: subject || 'הודעה מועד הבית',
-      message,
-      from_name: es.senderName || 'ועד הבית',
-      reply_to: es.senderEmail || '',
-    }, es.publicKey);
-    return true;
   }
 
   function getTenantStatementData(tenant, years) {
@@ -1695,22 +1692,14 @@ export default function App() {
       .replace(/{כתובת}/g, settings.address || '');
   }
 
-  async function sendPaymentReminders() {
-    const tpl = settings.templates.find(t => t.name === 'תזכורת תשלום') || settings.templates[0];
-    if (!tpl) { alert('לא הוגדרה תבנית תזכורת בהגדרות המערכת'); return; }
-    const targets = tenants.filter(t => calcDebt(t) > 0 && t.email);
-    if (targets.length === 0) { alert('אין דיירים עם חוב פתוח וכתובת מייל'); return; }
-    if (!confirm(`לשלוח תזכורת תשלום ל-${targets.length} דיירים עם חוב פתוח?`)) return;
-    setIsSendingReminders(true);
-    let ok = 0, fail = 0;
-    for (const t of targets) {
-      try {
-        await sendEmail(t.email, tpl.name, renderTemplateForTenant(tpl, t));
-        ok++;
-      } catch { fail++; }
-    }
-    setIsSendingReminders(false);
-    alert(fail === 0 ? `נשלחו תזכורות ל-${ok} דיירים בהצלחה!` : `נשלח בהצלחה ל-${ok} דיירים, נכשל עבור ${fail}`);
+  function getReminderTemplate() {
+    return settings.templates.find(t => t.name === 'תזכורת תשלום') || settings.templates[0];
+  }
+
+  function openPaymentReminders() {
+    if (!getReminderTemplate()) { alert('לא הוגדרה תבנית תזכורת בהגדרות המערכת'); return; }
+    setOpenedReminderIds(new Set());
+    setShowRemindersModal(true);
   }
 
   function getOwnerTenant(t) {
@@ -2271,8 +2260,8 @@ export default function App() {
                 <p className="text-sm text-gray-500">סה"כ חוב בבניין: <span className="font-bold text-red-600">₪{totalDebt.toLocaleString()}</span></p>
               </div>
               <div className="flex gap-2 flex-wrap justify-end">
-                <button onClick={sendPaymentReminders} disabled={isSendingReminders} className="bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-1 transition disabled:opacity-50">
-                  <Bell size={15} /> {isSendingReminders ? 'שולח...' : 'תזכורת'}
+                <button onClick={openPaymentReminders} className="bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-1 transition disabled:opacity-50">
+                  <Bell size={15} /> תזכורת לחייבים
                 </button>
                 <button onClick={() => setShowEmailModal(true)} className="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-1 transition">
                   <Mail size={15} /> שלח לכולם
@@ -3338,7 +3327,8 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Email Settings */}
+              {/* הגדרות EmailJS - הוסתרו: המיילים נפתחים עכשיו ב-Gmail. ההגדרות הישנות נשמרות בנתונים ולא נמחקו */}
+              {false && (<>
               <div className="bg-white p-6 rounded-2xl border shadow-sm">
                 <h3 className="font-bold text-base text-teal-800 mb-1">הגדרות מייל</h3>
                 <p className="text-xs text-gray-400 mb-4">פרטי EmailJS לשליחת מיילים מהמערכת</p>
@@ -3362,6 +3352,8 @@ export default function App() {
                   ))}
                 </div>
               </div>
+
+              </>)}
 
               {/* Templates */}
               <div className="bg-white p-6 rounded-2xl border shadow-sm">
@@ -3546,7 +3538,7 @@ export default function App() {
               placeholder="כתוב את ההודעה כאן..."
               className="w-full border rounded-xl p-3 text-sm h-40 resize-none focus:outline-none focus:ring-1 focus:ring-teal-400" dir="rtl" />
             {!selectedTenant?.email && (
-              <p className="text-xs text-orange-500 mt-2">לדייר זה אין כתובת מייל — הוסיפי בפרטי הדייר</p>
+              <p className="text-xs text-orange-500 mt-2">לדייר זה אין כתובת מייל — המייל ייפתח בלי נמען (אפשר להוסיף מייל בפרטי הדייר)</p>
             )}
 
             <div className="mt-3 p-3 bg-gray-50 rounded-xl space-y-3">
@@ -3625,24 +3617,15 @@ export default function App() {
               </div>
             )}
 
-            {sendResult && (
-              <p className={`text-xs mt-3 font-medium ${sendResult.ok ? 'text-green-600' : 'text-red-500'}`}>{sendResult.msg}</p>
-            )}
             <div className="flex gap-2 mt-4 justify-end">
-              <button onClick={() => { setShowTenantMsg(false); setSendResult(null); }} className="border px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">ביטול</button>
-              <button disabled={isSending || !tenantMsgText.trim() || !selectedTenant?.email}
-                onClick={async () => {
-                  setIsSending(true);
-                  setSendResult(null);
-                  try {
-                    await sendEmail(selectedTenant.email, tenantMsgSubject, tenantMsgText);
-                    setSendResult({ ok: true, msg: `נשלח בהצלחה ל-${selectedTenant.name}!` });
-                    setTimeout(() => { setShowTenantMsg(false); setTenantMsgText(''); setTenantMsgSubject(''); setSendResult(null); }, 1500);
-                  } catch { setSendResult({ ok: false, msg: 'שגיאה בשליחה — בדקי הגדרות מייל' }); }
-                  setIsSending(false);
+              <button onClick={() => setShowTenantMsg(false)} className="border px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">ביטול</button>
+              <button disabled={!tenantMsgText.trim()}
+                onClick={() => {
+                  openMail({ to: selectedTenant.email || '', subject: tenantMsgSubject || settings.buildingName || 'ועד הבית', body: tenantMsgText });
+                  setShowTenantMsg(false); setTenantMsgText(''); setTenantMsgSubject('');
                 }}
                 className="bg-sky-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-sky-700 transition flex items-center gap-1 disabled:opacity-50">
-                {isSending ? 'שולח...' : <><Mail size={14} /> שלח</>}
+                <Mail size={14} /> פתח ב-Gmail
               </button>
             </div>
           </div>
@@ -3748,7 +3731,7 @@ export default function App() {
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-teal-800">שליחת הודעה לכל הדיירים</h3>
-              <button onClick={() => { setShowEmailModal(false); setSendResult(null); }}><X size={20} className="text-gray-500 hover:text-gray-700" /></button>
+              <button onClick={() => setShowEmailModal(false)}><X size={20} className="text-gray-500 hover:text-gray-700" /></button>
             </div>
             <div className="mb-3">
               <label className="text-[10px] text-gray-400 block mb-1">נושא</label>
@@ -3758,36 +3741,63 @@ export default function App() {
             <textarea value={emailText} onChange={e => setEmailText(e.target.value)} placeholder="כתוב את ההודעה כאן..."
               className="w-full border rounded-xl p-3 text-sm h-32 resize-none focus:outline-none focus:ring-1 focus:ring-teal-400" dir="rtl" />
             <p className="text-xs text-gray-400 mt-2">
-              ישלח ל-{tenants.filter(t => t.email).length} דיירים עם כתובת מייל
+              ייפתח מייל אחד ב-Gmail עם {tenants.filter(t => t.email).length} דיירים בהעתק מוסתר (BCC) — אף דייר לא יראה את הכתובות של האחרים
             </p>
-            {sendResult && (
-              <p className={`text-xs mt-2 font-medium ${sendResult.ok ? 'text-green-600' : 'text-red-500'}`}>{sendResult.msg}</p>
-            )}
             <div className="flex gap-2 mt-4 justify-end">
-              <button onClick={() => { setShowEmailModal(false); setSendResult(null); }} className="border px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">ביטול</button>
-              <button disabled={isSending || !emailText.trim()} onClick={async () => {
-                setIsSending(true);
-                setSendResult(null);
-                const targets = tenants.filter(t => t.email);
-                let ok = 0, fail = 0;
-                for (const t of targets) {
-                  try {
-                    await sendEmail(t.email, emailSubject, emailText);
-                    ok++;
-                  } catch { fail++; }
-                }
-                setIsSending(false);
-                setSendResult(fail === 0
-                  ? { ok: true, msg: `נשלח בהצלחה ל-${ok} דיירים!` }
-                  : { ok: false, msg: `נשלח ל-${ok}, נכשל ל-${fail}` });
-                if (fail === 0) { setTimeout(() => { setShowEmailModal(false); setEmailText(''); setEmailSubject(''); setSendResult(null); }, 1500); }
+              <button onClick={() => setShowEmailModal(false)} className="border px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">ביטול</button>
+              <button disabled={!emailText.trim() || tenants.filter(t => t.email).length === 0} onClick={() => {
+                const bcc = [...new Set(tenants.filter(t => t.email).map(t => t.email.trim()))].join(',');
+                openMail({ bcc, subject: emailSubject || settings.buildingName || 'ועד הבית', body: emailText });
+                setShowEmailModal(false); setEmailText(''); setEmailSubject('');
               }} className="bg-sky-500 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-sky-600 transition disabled:opacity-50 flex items-center gap-1">
-                {isSending ? 'שולח...' : <><Mail size={14} /> שלח</>}
+                <Mail size={14} /> פתח ב-Gmail
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {showRemindersModal && (() => {
+        const tpl = getReminderTemplate();
+        const debtors = [...tenants].filter(t => calcDebt(t) > 0).sort((a, b) => Number(a.apt) - Number(b.apt));
+        const withEmail = debtors.filter(t => t.email);
+        const noEmail = debtors.filter(t => !t.email);
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowRemindersModal(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md max-h-[90vh] flex flex-col" dir="rtl" onClick={e => e.stopPropagation()}>
+              <div className="flex justify-between items-start mb-1">
+                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Bell size={18} className="text-teal-600" /> תזכורת לחייבים</h3>
+                <button onClick={() => setShowRemindersModal(false)}><X size={20} className="text-gray-400 hover:text-gray-600" /></button>
+              </div>
+              <p className="text-xs text-gray-500 mb-4">כל לחיצה פותחת מייל אישי מוכן (תבנית "{tpl?.name}") — בודקים ולוחצים "שלח" ב-Gmail</p>
+              <div className="overflow-y-auto flex-1 divide-y divide-gray-100 mb-3">
+                {withEmail.length === 0 && <p className="text-sm text-gray-400 text-center py-6">אין דיירים בחוב עם כתובת מייל</p>}
+                {withEmail.map(t => {
+                  const opened = openedReminderIds.has(t.id);
+                  return (
+                    <div key={t.id} className="flex items-center gap-3 py-2.5">
+                      <span className="w-8 h-8 rounded-full bg-teal-50 text-teal-800 font-bold text-sm flex items-center justify-center shrink-0">{t.apt}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-800 truncate">{t.name}</div>
+                        <div className="text-xs text-red-500 font-semibold">₪{calcDebt(t).toLocaleString()} חוב</div>
+                      </div>
+                      <button onClick={() => {
+                        openMail({ to: t.email, subject: tpl.name, body: renderTemplateForTenant(tpl, t) });
+                        setOpenedReminderIds(prev => new Set(prev).add(t.id));
+                      }} className={`text-xs px-3 py-1.5 rounded-full font-bold border transition flex items-center gap-1 whitespace-nowrap ${opened ? 'text-green-700 border-green-200 bg-green-50' : 'text-white bg-sky-600 border-sky-600 hover:bg-sky-700'}`}>
+                        {opened ? <><Check size={12} /> נפתח</> : <><Mail size={12} /> פתח ב-Gmail</>}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              {noEmail.length > 0 && (
+                <p className="text-xs text-orange-500 border-t pt-3">בחוב בלי כתובת מייל: {noEmail.map(t => `${t.name} (דירה ${t.apt})`).join(', ')}</p>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {selectExpModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectExpModal(null)}>
