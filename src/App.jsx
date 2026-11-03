@@ -228,6 +228,60 @@ const INITIAL_TENANTS = [
   { id: 17, name: 'דירה גדולה פריד', apt: '17', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 40, owner: 'פריד', payments: [], charges: [] },
 ];
 
+const PAYMENT_METHODS = ['מזומן', 'ביט', 'פייבוקס', 'העברה בנקאית', 'צ׳ק', 'הוראת קבע', 'אחר'];
+
+function monthSortKey(month, year) {
+  return (HEBREW_YEAR_TO_NUMERIC[year] || 0) * 100 + monthsForYear(year).indexOf(month);
+}
+
+// כל החובות הפתוחים של דייר, לפי סדר תשלום: קודם דמי ועד מהחודש הכי ישן, אחר כך חיובים.
+// בדירה מושכרת - חובות של שוכר קודם מסומנים isCurrent=false (לא נבחרים אוטומטית)
+function getOpenDebtItems(tenant) {
+  const isCurrent = x => !tenant.ownerId || isCurrentOccupantItem(tenant, x);
+  const monthly = tenant.payments
+    .filter(p => p.status === 'חוב' && p.amount - (p.paidAmount || 0) > 0)
+    .sort((a, b) => monthSortKey(a.hebrewMonth, a.hebrewYear) - monthSortKey(b.hebrewMonth, b.hebrewYear))
+    .map(p => ({ key: `p-${p.id}`, kind: 'payment', refId: p.id, label: `ועד בית — ${p.hebrewMonth} ${p.hebrewYear}`,
+      due: p.amount - (p.paidAmount || 0), partial: true, occupant: p.occupantName || tenant.name, isCurrent: isCurrent(p) }));
+  const charges = (tenant.charges || [])
+    .filter(c => c.status === 'חוב' && c.amount > 0)
+    .map(c => ({ key: `c-${c.id}`, kind: 'charge', refId: c.id, label: `${c.description || 'חיוב'}${c.note ? ` (${c.note})` : ''}`,
+      due: c.amount, partial: false, occupant: c.occupantName || tenant.name, isCurrent: isCurrent(c) }));
+  return [...monthly, ...charges];
+}
+
+// חלוקת סכום על החובות שנבחרו לפי הסדר. חיוב (שאין לו תשלום חלקי) מכוסה רק אם יש מספיק לכולו.
+function allocateAmount(items, checkedKeys, amount) {
+  let left = amount;
+  const alloc = [];
+  for (const it of items) {
+    if (!checkedKeys.has(it.key) || left <= 0) continue;
+    if (it.partial) { const a = Math.min(left, it.due); alloc.push({ ...it, amount: a }); left -= a; }
+    else if (left >= it.due) { alloc.push({ ...it, amount: it.due }); left -= it.due; }
+  }
+  return { alloc, left };
+}
+
+// החודשים הבאים אחרי החודש הנוכחי (לתשלום מראש)
+function nextMonthsFromNow(count) {
+  const { month, numericYear } = getCurrentHebrewDate();
+  let y = numericYear;
+  let idx = monthsForNumericYear(y).indexOf(month);
+  const out = [];
+  while (out.length < count) {
+    idx++;
+    if (idx >= monthsForNumericYear(y).length) { y++; idx = 0; }
+    const yearStr = numericToHebrewYear(y);
+    if (!HEBREW_YEARS.includes(yearStr)) break;
+    out.push({ month: monthsForNumericYear(y)[idx], year: yearStr });
+  }
+  return out;
+}
+
+function fmtGregDate(iso) {
+  return iso ? iso.split('-').reverse().join('/') : '';
+}
+
 function calcDebt(tenant) {
   const fromPayments = tenant.payments.filter(p => p.status === 'חוב').reduce((sum, p) => sum + p.amount - (p.paidAmount || 0), 0);
   const fromCharges = (tenant.charges || []).filter(c => c.status === 'חוב').reduce((sum, c) => sum + c.amount, 0);
@@ -628,6 +682,7 @@ export default function App() {
   const [isSendingReminders, setIsSendingReminders] = useState(false);
   const [emailSubject, setEmailSubject] = useState('');
   const [tenantMsgSubject, setTenantMsgSubject] = useState('');
+  const [receiptModal, setReceiptModal] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -1797,6 +1852,103 @@ export default function App() {
     setTenants(prev => prev.map(t => t.id === selectedId ? { ...t, payments: [...t.payments, newP] } : t));
   }
 
+  // יתרה שנשארת אחרי כיסוי החובות - נזקפת כתשלום מראש לחודשים הבאים (סטטוס 'זכות',
+  // בדיוק כמו "+ הוסף" על חודש עתידי). כשהחודש מגיע, הטעינה הופכת אותו ל'שולם' כרגיל.
+  function planPrepaid(tenant, amount) {
+    let left = amount;
+    const plan = [];
+    if (left <= 0) return { plan, left };
+    for (const { month, year } of nextMonthsFromNow(24)) {
+      if (left <= 0) break;
+      const existing = tenant.payments.find(p => p.hebrewMonth === month && p.hebrewYear === year);
+      if (existing && existing.status === 'שולם') continue;
+      const fullAmount = existing ? existing.amount : Math.round(getFeeForMonth(month, year) * (Number(tenant.feePercent || 100) / 100));
+      const room = fullAmount - (existing?.paidAmount || 0);
+      if (room <= 0) continue;
+      const a = Math.min(left, room);
+      plan.push({ month, year, amount: a, full: a >= room, existingId: existing?.id, fullAmount });
+      left -= a;
+    }
+    return { plan, left };
+  }
+
+  function openReceiptModal(tenant) {
+    const items = getOpenDebtItems(tenant);
+    setReceiptModal({
+      tenantId: tenant.id,
+      amount: '',
+      date: new Date().toLocaleDateString('en-CA'),
+      method: 'מזומן',
+      note: '',
+      checked: new Set(items.filter(it => it.isCurrent).map(it => it.key)),
+      prepay: true,
+    });
+  }
+
+  function recordReceipt(form) {
+    const amount = Math.round(Number(form.amount) || 0);
+    if (amount <= 0) return;
+    const baseId = Date.now();
+    setTenants(prev => prev.map(t => {
+      if (t.id !== form.tenantId) return t;
+      const { alloc, left } = allocateAmount(getOpenDebtItems(t), form.checked, amount);
+      const { plan, left: unallocated } = form.prepay ? planPrepaid(t, left) : { plan: [], left };
+      const allocations = alloc.map(a => ({ kind: a.kind, refId: a.refId, label: a.label, amount: a.amount }));
+
+      const payAlloc = new Map(alloc.filter(a => a.kind === 'payment').map(a => [a.refId, a.amount]));
+      const chargeAlloc = new Set(alloc.filter(a => a.kind === 'charge').map(a => a.refId));
+      let payments = t.payments.map(p => {
+        if (!payAlloc.has(p.id)) return p;
+        const paid = (p.paidAmount || 0) + payAlloc.get(p.id);
+        return { ...p, paidAmount: paid, status: paid >= p.amount ? 'שולם' : 'חוב' };
+      });
+      plan.forEach((pl, i) => {
+        if (pl.existingId != null) {
+          payments = payments.map(p => p.id !== pl.existingId ? p : { ...p, paidAmount: (p.paidAmount || 0) + pl.amount, status: 'זכות' });
+          allocations.push({ kind: 'prepaid', refId: pl.existingId, label: `תשלום מראש — ${pl.month} ${pl.year}`, amount: pl.amount });
+        } else {
+          const id = baseId + 1 + i;
+          payments = [...payments, { id, hebrewMonth: pl.month, hebrewYear: pl.year, status: 'זכות', amount: pl.fullAmount, paidAmount: pl.amount, occupantName: t.name }];
+          allocations.push({ kind: 'prepaid', refId: id, label: `תשלום מראש — ${pl.month} ${pl.year}`, amount: pl.amount, created: true });
+        }
+      });
+      const charges = (t.charges || []).map(c => chargeAlloc.has(c.id) ? { ...c, status: 'שולם' } : c);
+      const receipt = { id: baseId, date: form.date, amount, method: form.method, note: form.note.trim(), allocations, unallocated };
+      return { ...t, payments, charges, receipts: [...(t.receipts || []), receipt] };
+    }));
+    setReceiptModal(null);
+  }
+
+  // ביטול קבלה: מחזיר את כל מה שהקבלה כיסתה למצב חוב. הקבלה נשארת ברשימה מסומנת "בוטלה".
+  function cancelReceipt(tenantId, receiptId) {
+    const tenant = tenants.find(t => t.id === tenantId);
+    const receipt = (tenant?.receipts || []).find(r => r.id === receiptId);
+    if (!receipt || receipt.cancelled) return;
+    if (!confirm(`לבטל את קבלת התשלום של ₪${receipt.amount.toLocaleString()} מ-${fmtGregDate(receipt.date)}?\n\nכל החודשים והחיובים שהיא כיסתה יחזרו להיות חוב.`)) return;
+    setTenants(prev => prev.map(t => {
+      if (t.id !== tenantId) return t;
+      let payments = t.payments;
+      let charges = t.charges || [];
+      receipt.allocations.forEach(a => {
+        if (a.kind === 'charge') {
+          charges = charges.map(c => c.id === a.refId ? { ...c, status: 'חוב' } : c);
+          return;
+        }
+        payments = payments.flatMap(p => {
+          if (p.id !== a.refId) return [p];
+          const paid = Math.max(0, (p.paidAmount || 0) - a.amount);
+          if (a.created && paid === 0) return [];
+          const status = isFutureMonth(p.hebrewMonth, p.hebrewYear)
+            ? (paid > 0 ? 'זכות' : 'חוב')
+            : (paid >= p.amount ? 'שולם' : 'חוב');
+          return [{ ...p, paidAmount: paid, status }];
+        });
+      });
+      const receipts = (t.receipts || []).map(r => r.id === receiptId ? { ...r, cancelled: true, cancelledAt: new Date().toISOString() } : r);
+      return { ...t, payments, charges, receipts };
+    }));
+  }
+
   function addPaymentRow() {
     const nextId = Math.max(0, ...editData.payments.map(p => p.id)) + 1;
     setEditData(d => ({ ...d, payments: [...d.payments, { id: nextId, hebrewMonth: 'תשרי', hebrewYear: CURRENT_HEBREW_YEAR, status: 'חוב', amount: d.monthlyRent, occupantName: d.name }] }));
@@ -2409,6 +2561,35 @@ export default function App() {
                   </div>
                 </div>
 
+                {(selectedTenant.receipts || []).length > 0 && (
+                  <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                    <h4 className="font-bold text-base text-teal-800 mb-4">קבלות תשלום</h4>
+                    <div className="space-y-2">
+                      {[...selectedTenant.receipts].reverse().map(r => {
+                        const heb = r.date ? (() => { const [yy, mm, dd] = r.date.split('-').map(Number); const h = gregorianToHebrewDate(new Date(yy, mm - 1, dd)); return `${h.day} ${h.month} ${h.year}`; })() : '';
+                        return (
+                          <div key={r.id} className={`p-3 rounded-xl border text-sm ${r.cancelled ? 'bg-gray-50 border-gray-200 opacity-60' : 'bg-teal-50/40 border-teal-100'}`}>
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <span className={`font-bold text-base ${r.cancelled ? 'line-through text-gray-500' : 'text-teal-700'}`}>₪{r.amount.toLocaleString()}</span>
+                              <span className="text-gray-600">{fmtGregDate(r.date)}</span>
+                              <span className="text-xs text-gray-400">{heb}</span>
+                              <span className="text-xs bg-white border border-gray-200 rounded-full px-2 py-0.5 text-gray-600">{r.method}</span>
+                              {r.cancelled
+                                ? <span className="text-xs font-bold text-red-500 mr-auto">בוטלה</span>
+                                : <button onClick={() => cancelReceipt(selectedTenant.id, r.id)} className="text-xs text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-full px-2 py-0.5 mr-auto transition">ביטול קבלה</button>}
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1.5 leading-relaxed">
+                              {r.allocations.map(a => `${a.label.replace('ועד בית — ', '')}: ₪${a.amount.toLocaleString()}`).join(' · ')}
+                              {r.unallocated > 0 && <span className="text-orange-500"> · לא שויך: ₪{r.unallocated.toLocaleString()}</span>}
+                            </div>
+                            {r.note && <div className="text-xs text-gray-600 mt-1">הערה: {r.note}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* חיובים חד-פעמיים */}
                 <div className="bg-white p-5 rounded-2xl border shadow-sm">
                   <div className="flex justify-between items-center mb-4">
@@ -2650,6 +2831,11 @@ export default function App() {
 
                 <div className="bg-white p-5 rounded-2xl border shadow-sm space-y-2">
                   <h4 className="font-bold text-base text-teal-800 mb-3">פעולות</h4>
+                  <button onClick={() => openReceiptModal(selectedTenant)} disabled={editMode}
+                    title={editMode ? 'שמרי או בטלי את עריכת פרטי הדייר קודם' : ''}
+                    className="w-full bg-teal-700 hover:bg-teal-600 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1 disabled:opacity-40">
+                    <Banknote size={15} /> קבלת תשלום
+                  </button>
                   <button onClick={() => {
                     const available = [...new Set(selectedTenant.payments.map(p => p.hebrewYear))]
                       .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
@@ -3210,6 +3396,121 @@ export default function App() {
         )}
       </main>
 
+
+      {receiptModal && (() => {
+        const tenant = tenants.find(t => t.id === receiptModal.tenantId);
+        if (!tenant) return null;
+        const items = getOpenDebtItems(tenant);
+        const amount = Math.round(Number(receiptModal.amount) || 0);
+        const { alloc, left } = allocateAmount(items, receiptModal.checked, amount);
+        const allocByKey = new Map(alloc.map(a => [a.key, a.amount]));
+        const { plan, left: unallocated } = receiptModal.prepay ? planPrepaid(tenant, left) : { plan: [], left };
+        const checkedDue = items.filter(it => receiptModal.checked.has(it.key)).reduce((s, it) => s + it.due, 0);
+        const skippedCharges = items.filter(it => receiptModal.checked.has(it.key) && !it.partial && !allocByKey.has(it.key));
+        const setForm = patch => setReceiptModal(m => ({ ...m, ...patch }));
+        const canSave = amount > 0 && unallocated === 0 && receiptModal.date;
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setReceiptModal(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-lg max-h-[92vh] overflow-y-auto" dir="rtl" onClick={e => e.stopPropagation()}>
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Banknote size={20} className="text-teal-600" /> קבלת תשלום</h3>
+                  <p className="text-sm text-gray-500">{tenant.name} · דירה {tenant.apt}</p>
+                </div>
+                <button onClick={() => setReceiptModal(null)}><X size={20} className="text-gray-400 hover:text-gray-600" /></button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="col-span-2">
+                  <label className="text-xs text-gray-500 block mb-1">סכום שהתקבל</label>
+                  <div className="flex items-center gap-2">
+                    <input type="number" min="0" inputMode="numeric" autoFocus value={receiptModal.amount}
+                      onChange={e => setForm({ amount: e.target.value })}
+                      className="w-36 border border-teal-300 rounded-xl px-3 py-2 text-2xl font-bold text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-400" />
+                    <span className="text-xl font-bold text-gray-400">₪</span>
+                    {checkedDue > 0 && (
+                      <button onClick={() => setForm({ amount: String(checkedDue) })}
+                        className="text-xs text-teal-700 border border-teal-200 hover:bg-teal-50 rounded-full px-3 py-1.5 transition">
+                        כל החוב שנבחר — ₪{checkedDue.toLocaleString()}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">תאריך</label>
+                  <input type="date" value={receiptModal.date} onChange={e => setForm({ date: e.target.value })}
+                    className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-teal-400" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">אמצעי תשלום</label>
+                  <select value={receiptModal.method} onChange={e => setForm({ method: e.target.value })}
+                    className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-teal-400">
+                    {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs text-gray-500 block mb-1">הערה (לא חובה)</label>
+                  <input value={receiptModal.note} onChange={e => setForm({ note: e.target.value })} placeholder="למשל: מספר צ׳ק, מי מסר..."
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-teal-400" />
+                </div>
+              </div>
+
+              <p className="text-sm font-bold text-gray-700 mb-2">על מה התשלום</p>
+              {items.length === 0
+                ? <p className="text-sm text-gray-400 bg-gray-50 rounded-xl p-3 mb-3">אין חובות פתוחים — כל הסכום ייזקף כתשלום מראש</p>
+                : <div className="border border-gray-100 rounded-xl divide-y divide-gray-100 mb-3 max-h-60 overflow-y-auto">
+                    {items.map(it => {
+                      const got = allocByKey.get(it.key) || 0;
+                      return (
+                        <label key={it.key} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50">
+                          <input type="checkbox" checked={receiptModal.checked.has(it.key)}
+                            onChange={() => setReceiptModal(m => { const next = new Set(m.checked); if (next.has(it.key)) next.delete(it.key); else next.add(it.key); return { ...m, checked: next }; })}
+                            className="w-4 h-4 accent-teal-600" />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm text-gray-700">{it.label}</div>
+                            {!it.isCurrent && <div className="text-[11px] text-amber-600">שוכר קודם: {it.occupant}</div>}
+                          </div>
+                          <span className="text-xs text-gray-400 whitespace-nowrap">חוב ₪{it.due.toLocaleString()}</span>
+                          <span className={`text-sm font-bold w-20 text-left whitespace-nowrap ${got >= it.due ? 'text-green-600' : got > 0 ? 'text-amber-600' : 'text-gray-300'}`}>
+                            {got > 0 ? `₪${got.toLocaleString()}${got >= it.due ? ' ✓' : ''}` : '—'}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>}
+
+              {skippedCharges.length > 0 && (
+                <p className="text-xs text-amber-600 mb-2">לא נשאר מספיק לכיסוי מלא של: {skippedCharges.map(c => c.label).join(', ')} (חיוב נסגר רק בתשלום מלא)</p>
+              )}
+
+              {left > 0 && (
+                <div className="bg-sky-50 border border-sky-100 rounded-xl p-3 mb-3">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={receiptModal.prepay} onChange={e => setForm({ prepay: e.target.checked })} className="w-4 h-4 accent-sky-600" />
+                    <span>נשארו <b>₪{left.toLocaleString()}</b> — לזקוף כתשלום מראש לחודשים הבאים</span>
+                  </label>
+                  {receiptModal.prepay && plan.length > 0 && (
+                    <p className="text-xs text-sky-700 mt-1.5 mr-6">
+                      {plan.map(pl => `${pl.month} ${pl.year}${pl.full ? '' : ` (חלקי ₪${pl.amount.toLocaleString()})`}`).join(' · ')}
+                    </p>
+                  )}
+                </div>
+              )}
+              {unallocated > 0 && (
+                <p className="text-xs text-red-500 font-medium mb-3">₪{unallocated.toLocaleString()} מהסכום לא משויכים לשום חוב — סמני עוד חובות, סמני "תשלום מראש" או הקטיני את הסכום.</p>
+              )}
+
+              <div className="flex gap-2 border-t pt-4">
+                <button onClick={() => setReceiptModal(null)} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">ביטול</button>
+                <button onClick={() => recordReceipt(receiptModal)} disabled={!canSave}
+                  className="flex-1 bg-teal-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-teal-600 transition disabled:opacity-40 flex items-center justify-center gap-1">
+                  <Check size={15} /> אישור קבלת ₪{amount.toLocaleString()}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {showTenantMsg && selectedTenant && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
