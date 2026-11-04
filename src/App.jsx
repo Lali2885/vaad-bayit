@@ -2652,17 +2652,16 @@ export default function App() {
                             const sub = rental
                               ? `בעלים: ${owner?.name || '—'}${t.feePercent && Number(t.feePercent) !== 100 ? ` · ${t.feePercent}%` : ''}`
                               : ownedDebt > 0 ? `+ ₪${ownedDebt.toLocaleString()} בדירות שלו`
-                              : credit > 0 ? `שולם מראש ₪${credit.toLocaleString()}`
-                              : debt > 0 ? (openMonths ? `${openMonths} חודשים פתוחים` : 'חיובים פתוחים') : 'מעודכן';
+                              : debt > 0 && openMonths ? `${openMonths} חודשים פתוחים` : '';
                             return (
                               <button key={t.id} onClick={() => openTenant(t.id)}
-                                className={`flex-[1_1_70px] md:flex-[1_1_120px] min-w-0 text-right rounded-xl p-2 md:p-3 min-h-[88px] flex flex-col gap-1 hover:shadow-md transition ${look} ${matches(t) ? '' : 'opacity-30'}`}>
-                                <span className="flex justify-between items-center gap-1">
-                                  <span className={`text-xl md:text-[22px] font-extrabold ${rental ? 'text-[#A15C07]' : debt > 0 ? 'text-[#B42318]' : 'text-teal-700'}`}>{t.apt}</span>
-                                  <span className={`text-[11px] md:text-xs font-bold px-1.5 md:px-2 py-0.5 rounded-full whitespace-nowrap ${debt > 0 ? 'bg-white text-[#B42318]' : 'bg-white text-teal-700'}`}>{debt > 0 ? `₪${debt.toLocaleString()}` : <><span className="hidden md:inline">מעודכן </span>✓</>}</span>
-                                </span>
+                                className={`flex-[1_1_70px] md:flex-[1_1_120px] min-w-0 text-right rounded-xl p-2 md:p-3 min-h-[96px] flex flex-col gap-1 hover:shadow-md transition ${look} ${matches(t) ? '' : 'opacity-30'}`}>
+                                <span className={`text-xl md:text-[22px] font-extrabold leading-none ${rental ? 'text-[#A15C07]' : debt > 0 ? 'text-[#B42318]' : 'text-teal-700'}`}>{t.apt}</span>
                                 <span className="text-sm md:text-[15px] font-medium truncate">{rental ? `שוכר: ${t.vacant ? 'ריקה' : (t.name || '—')}` : t.name}</span>
-                                <span className="text-[11px] md:text-xs text-[#5B6B67] truncate">{sub}</span>
+                                {debt > 0 && <span className="text-[13px] md:text-sm font-bold text-[#B42318] whitespace-nowrap">חוב ₪{debt.toLocaleString()}</span>}
+                                {credit > 0 && <span className="text-[13px] md:text-sm font-bold text-[#15803D] whitespace-nowrap">זכות ₪{credit.toLocaleString()}</span>}
+                                {debt === 0 && credit === 0 && <span className="text-[13px] md:text-sm font-bold text-teal-700 whitespace-nowrap">מעודכן ✓</span>}
+                                {sub && <span className="text-[11px] md:text-xs text-[#5B6B67] truncate">{sub}</span>}
                               </button>
                             );
                           })}
