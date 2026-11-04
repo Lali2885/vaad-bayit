@@ -227,6 +227,55 @@ const INITIAL_TENANTS = [
   { id: 17, name: 'דירה גדולה פריד', apt: '17', phone: '', email: '', idCard: '', dueDate: '', monthlyRent: 40, owner: 'פריד', payments: [], charges: [] },
 ];
 
+// מצב הדגמה (קובץ תצוגה מקדימה בלבד, נבנה עם VITE_DEMO=1): נתוני דוגמה, בלי התחברות ובלי שום גישה לשרת
+const DEMO = import.meta.env.VITE_DEMO === '1';
+
+// 12 החודשים העבריים האחרונים, מהישן לחדש (כולל החודש הנוכחי)
+function lastHebrewMonths(count) {
+  const { month, numericYear } = getCurrentHebrewDate();
+  let y = numericYear;
+  let idx = monthsForNumericYear(y).indexOf(month);
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    out.unshift({ month: monthsForNumericYear(y)[idx], year: numericToHebrewYear(y) });
+    idx--;
+    if (idx < 0) { y--; idx = monthsForNumericYear(y).length - 1; }
+  }
+  return out;
+}
+
+function buildDemoTenants() {
+  const { month, year, numericYear } = getCurrentHebrewDate();
+  const prevYear = numericToHebrewYear(numericYear - 1);
+  const owners = { '13': 10, '14': 10, '15': 11, '16': 12, '17': 12 };
+  const owed = { '5': 1, '8': 3, '12': 2, '13': 2, '16': 4, '17': 1 };
+  const curMonths = monthsForYear(year);
+  const timeline = [
+    ...monthsForYear(prevYear).map(m => ({ m, y: prevYear })),
+    ...curMonths.slice(0, curMonths.indexOf(month) + 1).map(m => ({ m, y: year })),
+  ];
+  return INITIAL_TENANTS.map(t => {
+    const fee = Math.round(80 * (Number(t.feePercent || 100) / 100));
+    const n = owed[t.apt] || 0;
+    const payments = timeline.map(({ m, y }, i) => {
+      const isDebt = i >= timeline.length - n;
+      return { id: i + 1, hebrewMonth: m, hebrewYear: y, amount: fee, paidAmount: isDebt ? 0 : fee, status: isDebt ? 'חוב' : 'שולם', occupantName: t.name };
+    });
+    const charges = t.apt === '16' ? [{ id: 901, description: 'תיקון דלת כניסה', amount: 100, status: 'חוב', note: '', occupantName: t.name, billTo: 'owner' }] : [];
+    return { ...t, payments, charges, ownerId: owners[t.apt] || '', phone: '', email: '' };
+  });
+}
+
+function buildDemoSettings() {
+  const months = lastHebrewMonths(12);
+  const cleaningExpenses = months.map((mm, i) => ({ id: 1000 + i, description: 'ניקיון חדר מדרגות', totalAmount: 600, paidAmount: 600, perTenantAmount: 0, hebrewDay: 'א', hebrewMonth: mm.month, hebrewYear: mm.year, note: '' }));
+  const electricityExpenses = months.filter((_, i) => i % 2 === 1).map((mm, i) => ({
+    id: 2000 + i, fromGreg: '', fromDay: 'א', fromMonth: mm.month, fromYear: mm.year, toGreg: '', toDay: 'כט', toMonth: mm.month, toYear: mm.year,
+    totalAmount: 460 + i * 25, paymentMethod: i === 5 ? '' : 'הוראת קבע', paymentGreg: '', paymentDay: 'ה', paymentMonth: mm.month, paymentYear: mm.year, note: '',
+  }));
+  return { ...INITIAL_SETTINGS, cleaningExpenses, electricityExpenses };
+}
+
 // חשבון ה-Gmail של הוועד - ממנו נפתחים המיילים במחשב
 const GMAIL_ACCOUNT = 'vaad.bayitk85@gmail.com';
 
@@ -720,8 +769,11 @@ export default function App() {
   const [emailSubject, setEmailSubject] = useState('');
   const [tenantMsgSubject, setTenantMsgSubject] = useState('');
   const [receiptModal, setReceiptModal] = useState(null);
+  const [openMonth, setOpenMonth] = useState(null);
+  const [buildingFilter, setBuildingFilter] = useState('all');
 
   useEffect(() => {
+    if (DEMO) { setSession({ user: { id: 'demo' } }); setAuthLoading(false); return; }
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setAuthLoading(false);
@@ -748,6 +800,16 @@ export default function App() {
     if (!session) { dataLoadedForUser.current = null; return; }
     if (dataLoadedForUser.current === session.user.id) return;
     dataLoadedForUser.current = session.user.id;
+
+    if (DEMO) {
+      const t = buildDemoTenants();
+      const st = buildDemoSettings();
+      skipTenantsSaveRef.current = true; skipSettingsSaveRef.current = true;
+      tenantsRef.current = t; settingsRef.current = st;
+      lastSyncedTenantsRef.current = t; lastSyncedSettingsRef.current = st;
+      setTenants(t); setSettings(st);
+      return;
+    }
 
     const cacheKeyT = `vaad_tenants_${session.user.id}`;
     const cacheKeyS = `vaad_settings_${session.user.id}`;
@@ -888,6 +950,7 @@ export default function App() {
   // השמירות עוברות בתור - אחת אחרי השנייה - וכל שמירה כותבת את המצב העדכני ביותר ברגע
   // שהגיע תורה. כך שמירה ישנה ואיטית לא יכולה להגיע לשרת אחרי חדשה ולדרוס אותה.
   function enqueueSave(kind) {
+    if (DEMO) return Promise.resolve();
     const userId = session?.user?.id;
     if (!userId) return Promise.resolve();
     const isTenants = kind === 'tenants';
@@ -933,7 +996,7 @@ export default function App() {
   // ל-lastSyncedTenantsRef), מיישמים מיד עדכון שהגיע מטאב/מכשיר אחר. אם יש עריכה מקומית
   // ממתינה - מדלגים כדי לא לדרוס אותה; היא תישמר כרגיל ותעדכן את שאר הטאבים בתורה.
   useEffect(() => {
-    if (!session) return;
+    if (!session || DEMO) return;
     const channel = supabase
       .channel(`vaad-sync-${session.user.id}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_tenants', filter: `user_id=eq.${session.user.id}` }, (payload) => {
@@ -972,6 +1035,7 @@ export default function App() {
   }
 
   async function handleLogout() {
+    if (DEMO) { window.location.reload(); return; }
     if (session) {
       try {
         localStorage.removeItem(`vaad_tenants_${session.user.id}`);
@@ -1899,7 +1963,7 @@ export default function App() {
 
   const selectedTenant = tenants?.find(t => t.id === selectedId);
 
-  function openTenant(id) { setSelectedId(id); setView('tenant'); setEditMode(false); }
+  function openTenant(id) { setSelectedId(id); setView('tenant'); setEditMode(false); setOpenMonth(null); window.scrollTo?.(0, 0); }
   function goList() { setView('list'); setSelectedId(null); setEditMode(false); }
 
   function startEdit() {
@@ -2196,14 +2260,14 @@ export default function App() {
   const totalDebt = tenants?.reduce((s, t) => s + calcDebt(t), 0) ?? 0;
 
   if (authLoading) return (
-    <div className="min-h-screen flex items-center justify-center bg-sky-50">
+    <div className="min-h-screen flex items-center justify-center bg-[#F4F6F5]">
       <p className="text-gray-400 text-sm">טוען...</p>
     </div>
   );
 
   if (!session) return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-teal-50 to-sky-100" dir="rtl">
-      <div className="bg-white rounded-2xl shadow-lg p-8 w-80">
+    <div className="min-h-screen flex items-center justify-center bg-[#F4F6F5] px-4" dir="rtl">
+      <div className="bg-white rounded-[20px] border border-[#E3E8E6] p-8 w-full max-w-sm">
         <div className="text-center mb-6">
           <Building className="mx-auto text-teal-600 mb-2" size={38} />
           <h1 className="text-xl font-bold text-gray-800">ועד בית</h1>
@@ -2231,66 +2295,71 @@ export default function App() {
   );
 
   if (dataLoading || !tenants || !settings) return (
-    <div className="min-h-screen flex items-center justify-center bg-sky-50">
+    <div className="min-h-screen flex items-center justify-center bg-[#F4F6F5]">
       <p className="text-gray-400 text-sm">טוען נתונים...</p>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-sky-50 flex font-sans" dir="rtl">
+    <div className="min-h-screen bg-[#F4F6F5] flex items-start text-[#17211F]" dir="rtl">
       {dbError && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2">
           <span>{dbError}</span>
-          <button onClick={() => setDbError(null)} className="hover:opacity-70"><X size={16} /></button>
+          <button onClick={() => setDbError(null)} className="hover:opacity-70" aria-label="סגירה"><X size={16} /></button>
         </div>
       )}
-      <div className="hidden md:flex w-28 shrink-0 flex-col items-center py-8 gap-6 text-white"
-        style={{background: 'linear-gradient(160deg, #0f766e 0%, #0284c7 60%, #0c4a6e 100%)'}}>
-        {settings.logo
-          ? <img src={settings.logo} alt="לוגו" className="w-24 h-24 object-contain rounded-full bg-white/20 p-1 shadow" />
-          : <Building size={38} className="text-cyan-100" />}
-        <div className="flex flex-col items-center gap-2 mt-2 w-full px-2">
-          <button onClick={() => setView('dashboard')} className={`flex flex-col items-center gap-1.5 w-full py-3 rounded-2xl transition-all ${view === 'dashboard' ? 'bg-white/20 text-white' : 'text-cyan-100 hover:text-white hover:bg-white/10'}`}>
-            <LayoutDashboard size={26} /><span className="text-[11px] font-medium">דשבורד</span>
-          </button>
-          <button onClick={goList} className={`flex flex-col items-center gap-1.5 w-full py-3 rounded-2xl transition-all ${view === 'list' ? 'bg-white/20 text-white' : 'text-cyan-100 hover:text-white hover:bg-white/10'}`}>
-            <Home size={26} /><span className="text-[11px] font-medium">דיירים</span>
-          </button>
-          <button onClick={() => setView('expenses')} className={`flex flex-col items-center gap-1.5 w-full py-3 rounded-2xl transition-all ${view === 'expenses' ? 'bg-white/20 text-white' : 'text-cyan-100 hover:text-white hover:bg-white/10'}`}>
-            <ReceiptText size={26} /><span className="text-[11px] font-medium">הוצאות</span>
-          </button>
-          <button onClick={openSettings} className={`flex flex-col items-center gap-1.5 w-full py-3 rounded-2xl transition-all ${view === 'settings' ? 'bg-white/20 text-white' : 'text-cyan-100 hover:text-white hover:bg-white/10'}`}>
-            <Settings size={26} /><span className="text-[11px] font-medium">הגדרות</span>
-          </button>
-        </div>
-        <div className="mt-auto pb-2">
-          <button onClick={handleLogout} title="יציאה"
-            className="flex flex-col items-center gap-1 text-cyan-300 hover:text-white transition opacity-60 hover:opacity-100">
-            <LogOut size={20} /><span className="text-[10px]">יציאה</span>
-          </button>
-        </div>
-      </div>
+      {(() => {
+        const navItems = [
+          { key: 'dashboard', label: 'דשבורד', Icon: LayoutDashboard, go: () => setView('dashboard'), active: view === 'dashboard' },
+          { key: 'list', label: 'דיירים', Icon: Building, go: goList, active: view === 'list' || view === 'tenant' || view === 'add' },
+          { key: 'expenses', label: 'הוצאות', Icon: ReceiptText, go: () => setView('expenses'), active: view === 'expenses' },
+          { key: 'settings', label: 'הגדרות', Icon: Settings, go: openSettings, active: view === 'settings' },
+        ];
+        return (
+          <>
+            <nav aria-label="ניווט ראשי" className="hidden md:flex w-[220px] shrink-0 flex-col gap-1.5 bg-[#0B3B37] text-[#E6F2F0] px-4 py-7 sticky top-0 h-screen">
+              <div className="flex items-center gap-2.5 px-2.5 pb-6">
+                {settings.logo
+                  ? <img src={settings.logo} alt="לוגו" className="w-11 h-11 rounded-xl object-contain bg-white p-0.5 shrink-0" />
+                  : <div className="w-11 h-11 rounded-xl bg-teal-400 text-[#0B3B37] flex items-center justify-center shrink-0"><Building size={22} /></div>}
+                <div className="flex flex-col min-w-0">
+                  <span className="font-bold text-[15px] truncate">{settings.buildingName || 'ועד בית'}</span>
+                  <span className="text-xs text-[#9CC9C2] truncate">{settings.address || ''}</span>
+                </div>
+              </div>
+              {navItems.map(({ key, label, Icon, go, active }) => (
+                <button key={key} onClick={go} aria-current={active ? 'page' : undefined}
+                  className={`flex items-center gap-2.5 px-3.5 py-3 rounded-xl text-[15px] text-right transition ${active ? 'bg-white/[0.12] text-white font-medium' : 'text-[#C9E4E0] hover:bg-white/[0.06] hover:text-white'}`}>
+                  <Icon size={20} /> {label}
+                </button>
+              ))}
+              <button onClick={handleLogout} className="mt-auto flex items-center gap-2.5 px-3.5 py-3 rounded-xl text-sm text-[#9CC9C2] hover:text-white hover:bg-white/[0.06] transition">
+                <LogOut size={18} /> יציאה
+              </button>
+            </nav>
 
-      <div className="md:hidden fixed bottom-0 inset-x-0 z-40 flex items-center justify-around text-white shadow-lg"
-        style={{background: 'linear-gradient(160deg, #0f766e 0%, #0284c7 60%, #0c4a6e 100%)', paddingBottom: 'env(safe-area-inset-bottom)'}}>
-        <button onClick={() => setView('dashboard')} className={`flex flex-col items-center gap-0.5 flex-1 py-2 transition-all ${view === 'dashboard' ? 'text-white bg-white/15' : 'text-cyan-100'}`}>
-          <LayoutDashboard size={21} /><span className="text-[10px] font-medium">דשבורד</span>
-        </button>
-        <button onClick={goList} className={`flex flex-col items-center gap-0.5 flex-1 py-2 transition-all ${view === 'list' || view === 'tenant' || view === 'add' ? 'text-white bg-white/15' : 'text-cyan-100'}`}>
-          <Home size={21} /><span className="text-[10px] font-medium">דיירים</span>
-        </button>
-        <button onClick={() => setView('expenses')} className={`flex flex-col items-center gap-0.5 flex-1 py-2 transition-all ${view === 'expenses' ? 'text-white bg-white/15' : 'text-cyan-100'}`}>
-          <ReceiptText size={21} /><span className="text-[10px] font-medium">הוצאות</span>
-        </button>
-        <button onClick={openSettings} className={`flex flex-col items-center gap-0.5 flex-1 py-2 transition-all ${view === 'settings' ? 'text-white bg-white/15' : 'text-cyan-100'}`}>
-          <Settings size={21} /><span className="text-[10px] font-medium">הגדרות</span>
-        </button>
-        <button onClick={handleLogout} className="flex flex-col items-center gap-0.5 flex-1 py-2 text-cyan-200">
-          <LogOut size={21} /><span className="text-[10px]">יציאה</span>
-        </button>
-      </div>
+            <nav aria-label="ניווט ראשי" className="md:hidden fixed bottom-0 inset-x-0 z-40 flex bg-white border-t border-[#E3E8E6] px-1.5 pt-1.5"
+              style={{ paddingBottom: 'max(10px, env(safe-area-inset-bottom))' }}>
+              {navItems.map(({ key, label, Icon, go, active }) => (
+                <button key={key} onClick={go} aria-current={active ? 'page' : undefined}
+                  className={`flex-1 min-h-[52px] flex flex-col items-center justify-center gap-0.5 text-xs ${active ? 'text-teal-700 font-bold' : 'text-[#5B6B67]'}`}>
+                  <Icon size={22} /> {label}
+                </button>
+              ))}
+              <button onClick={handleLogout} className="flex-1 min-h-[52px] flex flex-col items-center justify-center gap-0.5 text-xs text-[#5B6B67]">
+                <LogOut size={22} /> יציאה
+              </button>
+            </nav>
+          </>
+        );
+      })()}
 
-      <main className="flex-1 p-4 md:p-6 pb-24 md:pb-6 overflow-auto bg-sky-50">
+      <main className="flex-1 min-w-0 px-4 pt-5 pb-28 md:px-10 md:pt-8 md:pb-10">
+        {DEMO && (
+          <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
+            <b>קובץ תצוגה מקדימה</b> — נתוני דוגמה בלבד. שום דבר כאן לא נשמר ולא נוגע במערכת האמיתית.
+          </div>
+        )}
         {view === 'dashboard' && (() => {
           const { month: curMonth, year: curYear } = getCurrentHebrewDate();
 
@@ -2300,12 +2369,8 @@ export default function App() {
             ) + (t.charges || []).filter(c => c.status === 'שולם').reduce((s, c) => s + c.amount, 0), 0
           );
 
-          const totalExpensesAll = [
-            ...(settings.electricityExpenses || []),
-            ...(settings.cleaningExpenses || []),
-            ...(settings.regularExpenses || []),
-            ...(settings.extraordinaryExpenses || []),
-          ].reduce((sum, e) => sum + (e.totalAmount || 0), 0);
+          const EXP_KEYS = ['electricityExpenses', 'cleaningExpenses', 'regularExpenses', 'extraordinaryExpenses'];
+          const totalExpensesAll = EXP_KEYS.flatMap(k => settings[k] || []).reduce((sum, e) => sum + (e.totalAmount || 0), 0);
 
           const balance = totalIncome - totalExpensesAll;
           const cashBaseline = settings.cashBaseline;
@@ -2313,23 +2378,27 @@ export default function App() {
             ? cashBaseline.amount + (totalIncome - cashBaseline.incomeSnapshot) - (totalExpensesAll - cashBaseline.expenseSnapshot)
             : null;
 
-          const expensesResetAt = settings.expensesResetAt || 0;
-          const thisMonthElec = (settings.electricityExpenses || [])
-            .filter(e => e.id > expensesResetAt)
-            .reduce((sum, e) => sum + (e.totalAmount || 0), 0);
-          const thisMonthOther = [
-            ...(settings.cleaningExpenses || []),
-            ...(settings.regularExpenses || []),
-            ...(settings.extraordinaryExpenses || []),
-          ].filter(e => e.id > expensesResetAt)
-           .reduce((sum, e) => sum + (e.totalAmount || 0), 0);
-          const thisMonthTotal = thisMonthElec + thisMonthOther;
+          // לאיזה חודש עברי שייכת הוצאה: חשמל - חודש התשלום (או סוף התקופה), שאר ההוצאות - התאריך שלהן
+          const expenseMonthOf = (e, key) => key === 'electricityExpenses'
+            ? `${e.paymentMonth || e.toMonth || e.fromMonth}|${e.paymentYear || e.toYear || e.fromYear}`
+            : `${e.hebrewMonth}|${e.hebrewYear}`;
+          const expenseByMonth = new Map();
+          EXP_KEYS.forEach(k => (settings[k] || []).forEach(e => {
+            const mk = expenseMonthOf(e, k);
+            expenseByMonth.set(mk, (expenseByMonth.get(mk) || 0) + (e.totalAmount || 0));
+          }));
+          const curKey = `${curMonth}|${curYear}`;
+          const thisMonthElec = (settings.electricityExpenses || []).filter(e => expenseMonthOf(e, 'electricityExpenses') === curKey).reduce((s, e) => s + (e.totalAmount || 0), 0);
+          const thisMonthTotal = expenseByMonth.get(curKey) || 0;
+          const thisMonthOther = thisMonthTotal - thisMonthElec;
 
-          const unpaidThisMonth = tenants.filter(t => {
+          const paidThisMonth = tenants.filter(t => {
             const p = t.payments.find(p => p.hebrewMonth === curMonth && p.hebrewYear === curYear);
-            return !p || p.status === 'חוב';
+            return p && (p.status === 'שולם' || p.status === 'זכות');
           }).length;
-          const debtorsCount = tenants.filter(t => !t.ownerId && payerTotal(t, tenants) > 0).length;
+          const collectPct = tenants.length ? Math.round(paidThisMonth / tenants.length * 100) : 0;
+          const payers = tenants.filter(t => !t.ownerId && payerTotal(t, tenants) > 0)
+            .map(t => ({ t, total: payerTotal(t, tenants) })).sort((a, b) => b.total - a.total);
 
           const calcExpenseRemaining = (e, key) => {
             if (key === 'electricityExpenses') return e.paymentMethod ? 0 : (e.totalAmount || 0);
@@ -2341,263 +2410,366 @@ export default function App() {
             const paid = isPulled ? autoPaid : (e.paidAmount || 0);
             return Math.max(0, (e.totalAmount || 0) - paid);
           };
-          const openElec = (settings.electricityExpenses || []).reduce((s, e) => s + calcExpenseRemaining(e, 'electricityExpenses'), 0);
-          const openCleaning = (settings.cleaningExpenses || []).reduce((s, e) => s + calcExpenseRemaining(e, 'cleaningExpenses'), 0);
-          const openRegular = (settings.regularExpenses || []).reduce((s, e) => s + calcExpenseRemaining(e, 'regularExpenses'), 0);
-          const openExtraordinary = (settings.extraordinaryExpenses || []).reduce((s, e) => s + calcExpenseRemaining(e, 'extraordinaryExpenses'), 0);
-          const totalOpenExpenses = openElec + openCleaning + openRegular + openExtraordinary;
+          const unpaidElec = (settings.electricityExpenses || []).filter(e => !e.paymentMethod);
+          const openOther = ['cleaningExpenses', 'regularExpenses', 'extraordinaryExpenses']
+            .reduce((s, k) => s + (settings[k] || []).reduce((ss, e) => ss + calcExpenseRemaining(e, k), 0), 0);
+
+          // גרף: גבייה (לפי חודש החיוב) מול הוצאות, 12 חודשים
+          const chart = lastHebrewMonths(12).map(({ month, year }) => ({
+            month, year,
+            income: tenants.reduce((s, t) => s + t.payments
+              .filter(p => p.hebrewMonth === month && p.hebrewYear === year)
+              .reduce((ss, p) => ss + (p.status === 'שולם' ? (p.paidAmount || p.amount) : (p.paidAmount || 0)), 0), 0),
+            expense: expenseByMonth.get(`${month}|${year}`) || 0,
+          }));
+          const chartMax = Math.max(1, ...chart.map(c => Math.max(c.income, c.expense)));
+
+          const hasBaseline = baselineBalance != null;
+          const hasAnchor = hasBaseline || settings.cashOverride != null;
+          const displayBalance = hasBaseline ? baselineBalance : (settings.cashOverride != null ? settings.cashOverride : balance);
+          const mgrName = (settings.managers?.[0]?.name || '').split(' ')[0];
+          const hour = new Date().getHours();
+          const greeting = hour < 12 ? 'בוקר טוב' : hour < 18 ? 'צהריים טובים' : 'ערב טוב';
+          const card = 'bg-white border border-[#E3E8E6] rounded-[18px] p-5 flex flex-col gap-1.5';
 
           return (
-            <>
-              <header className="mb-6">
-                <h2 className="text-xl font-bold text-gray-800">דשבורד</h2>
-                <p className="text-sm text-gray-500">
-                  {curMonth} {curYear}
-                  <span className="mx-2 text-gray-300">|</span>
-                  {GREG_MONTHS_HE[new Date().getMonth()]} {new Date().getFullYear()}
-                </p>
+            <div className="max-w-[1080px] flex flex-col gap-6">
+              <header className="flex flex-wrap justify-between items-end gap-4">
+                <div>
+                  <p className="text-sm text-[#5B6B67]">{curMonth} {curYear} · {GREG_MONTHS_HE[new Date().getMonth()]} {new Date().getFullYear()}</p>
+                  <h1 className="text-[26px] md:text-[30px] font-extrabold leading-tight">{greeting}{mgrName ? `, ${mgrName}` : ''}</h1>
+                </div>
+                <div className="flex flex-wrap gap-2.5">
+                  <button onClick={goList} className="px-5 py-3 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-[15px] transition">+ קבלת תשלום</button>
+                  <button onClick={openPaymentReminders} className="px-5 py-3 rounded-xl border border-[#CBD5D2] bg-white hover:border-teal-600 text-[15px] font-medium transition">תזכורת לחייבים</button>
+                </div>
               </header>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 max-w-2xl">
 
-                {(() => {
-                  const hasBaseline = baselineBalance != null;
-                  const hasAnchor = hasBaseline || settings.cashOverride != null;
-                  const displayBalance = hasBaseline ? baselineBalance : (settings.cashOverride != null ? settings.cashOverride : balance);
-                  return (
-                <div className={`bg-white rounded-2xl border shadow-sm p-5 ${displayBalance >= 0 ? 'border-teal-100' : 'border-red-100'}`}>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${displayBalance >= 0 ? 'bg-teal-100' : 'bg-red-100'}`}>
-                        <Wallet size={18} className={displayBalance >= 0 ? 'text-teal-600' : 'text-red-500'} />
-                      </div>
-                      <span className="text-sm font-medium text-gray-500">כסף בקופה</span>
-                    </div>
+              <section aria-label="מדדים" className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+                <div className={card}>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-[#5B6B67]">כסף בקופה</span>
                     {!editingCash && (
                       <button onClick={() => { setCashInput(String(displayBalance)); setEditingCash(true); }}
-                        className="text-gray-300 hover:text-teal-600 transition" title="קביעת יתרת פתיחה חדשה">
+                        className="text-[#9AA8A4] hover:text-teal-700 transition" title="קביעת יתרת פתיחה חדשה" aria-label="עדכון יתרת הקופה">
                         <Pencil size={14} />
                       </button>
                     )}
                   </div>
                   {editingCash ? (
-                    <div className="mb-3">
+                    <div>
                       <div className="flex items-center gap-2">
-                        <input type="number" value={cashInput} onChange={e => setCashInput(e.target.value)} autoFocus
-                          className="w-32 border border-gray-200 rounded-lg px-2 py-1 text-lg font-bold focus:outline-none focus:ring-2 focus:ring-teal-400" />
-                        <span className="text-lg font-bold text-gray-400">₪</span>
+                        <input type="number" value={cashInput} onChange={e => setCashInput(e.target.value)} autoFocus aria-label="יתרה בקופה"
+                          className="w-28 border border-[#CBD5D2] rounded-lg px-2 py-1 text-lg font-bold focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                        <span className="text-lg font-bold text-[#5B6B67]">₪</span>
                       </div>
-                      <p className="text-[11px] text-gray-400 mt-1">הסכום הזה יהפוך ליתרת פתיחה — מכאן והלאה כל הכנסה/הוצאה חדשה תעודכן אוטומטית ביחס אליו.</p>
-                      <div className="flex items-center gap-3 mt-2 text-xs">
+                      <p className="text-[11px] text-[#5B6B67] mt-1">הסכום יהפוך ליתרת פתיחה — מכאן כל הכנסה/הוצאה תעודכן ביחס אליו.</p>
+                      <div className="flex flex-wrap items-center gap-3 mt-2 text-xs">
                         <button onClick={() => {
                           setSettings(s => ({ ...s, cashOverride: null, cashBaseline: { amount: Number(cashInput) || 0, incomeSnapshot: totalIncome, expenseSnapshot: totalExpensesAll, setAt: Date.now() } }));
                           setEditingCash(false);
-                        }} className="text-teal-600 font-bold hover:underline">שמור כיתרת פתיחה</button>
-                        <button onClick={() => setEditingCash(false)} className="text-gray-400 hover:underline">ביטול</button>
+                        }} className="text-teal-700 font-bold hover:underline">שמור</button>
+                        <button onClick={() => setEditingCash(false)} className="text-[#5B6B67] hover:underline">ביטול</button>
                         {hasAnchor && (
                           <button onClick={() => { setSettings(s => ({ ...s, cashOverride: null, cashBaseline: null })); setEditingCash(false); }}
-                            className="text-amber-500 hover:underline">חשב אוטומטית (הכל מההתחלה)</button>
+                            className="text-amber-700 hover:underline">חשב מההתחלה</button>
                         )}
                       </div>
                     </div>
                   ) : (
-                    <p className={`text-3xl font-bold mb-3 ${displayBalance >= 0 ? 'text-teal-700' : 'text-red-500'}`}>
-                      ₪{displayBalance.toLocaleString()}
-                      {hasBaseline && <span className="text-xs font-normal text-gray-400 mr-2">(מיתרת פתיחה)</span>}
-                      {!hasBaseline && settings.cashOverride != null && <span className="text-xs font-normal text-gray-400 mr-2">(עודכן ידנית — לא עוקב אוטומטית)</span>}
-                    </p>
+                    <>
+                      <span className={`text-[28px] md:text-[32px] font-extrabold leading-tight ${displayBalance >= 0 ? 'text-teal-700' : 'text-[#B42318]'}`}>₪{displayBalance.toLocaleString()}</span>
+                      <span className="text-xs text-[#5B6B67]">{hasBaseline ? `+₪${(totalIncome - cashBaseline.incomeSnapshot).toLocaleString()} / −₪${(totalExpensesAll - cashBaseline.expenseSnapshot).toLocaleString()} מאז יתרת הפתיחה` : settings.cashOverride != null ? 'עודכן ידנית' : `הכנסות ₪${totalIncome.toLocaleString()} · הוצאות ₪${totalExpensesAll.toLocaleString()}`}</span>
+                    </>
                   )}
-                  <div className="text-xs text-gray-400 space-y-1">
-                    <div className="flex justify-between"><span>{hasBaseline ? 'הכנסות מאז האיפוס' : 'הכנסות'}</span><span className="text-green-600 font-semibold">₪{(hasBaseline ? (totalIncome - cashBaseline.incomeSnapshot) : totalIncome).toLocaleString()}</span></div>
-                    <div className="flex justify-between"><span>{hasBaseline ? 'הוצאות מאז האיפוס' : 'הוצאות'}</span><span className="text-red-400 font-semibold">₪{(hasBaseline ? (totalExpensesAll - cashBaseline.expenseSnapshot) : totalExpensesAll).toLocaleString()}</span></div>
+                </div>
+
+                <div className={card}>
+                  <span className="text-sm text-[#5B6B67]">נגבה ב{curMonth}</span>
+                  <span className="text-[28px] md:text-[32px] font-extrabold leading-tight">{paidThisMonth} <span className="text-base font-medium text-[#5B6B67]">מתוך {tenants.length} דירות</span></span>
+                  <div role="img" aria-label={`${collectPct} אחוז נגבה`} className="h-2 rounded-full bg-[#E6F2F0] overflow-hidden mt-1">
+                    <div className="h-2 rounded-full bg-teal-700" style={{ width: `${collectPct}%` }} />
                   </div>
                 </div>
-                  );
-                })()}
 
-                <div className="bg-white rounded-2xl border border-orange-100 shadow-sm p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-orange-100">
-                        <TrendingDown size={18} className="text-orange-500" />
+                <button onClick={goList} className={`${card} text-right hover:border-[#F2B8B2] transition`}>
+                  <span className="text-sm text-[#5B6B67]">סה״כ חוב בבניין</span>
+                  <span className={`text-[28px] md:text-[32px] font-extrabold leading-tight ${totalDebt > 0 ? 'text-[#B42318]' : 'text-teal-700'}`}>₪{totalDebt.toLocaleString()}</span>
+                  <span className="text-xs text-[#5B6B67]">{payers.length > 0 ? `${payers.length} משלמים בחוב` : 'אין חובות פתוחים'}</span>
+                </button>
+
+                <button onClick={() => setView('expenses')} className={`${card} text-right hover:border-[#CBD5D2] transition`}>
+                  <span className="text-sm text-[#5B6B67]">הוצאות ב{curMonth}</span>
+                  <span className="text-[28px] md:text-[32px] font-extrabold leading-tight">₪{thisMonthTotal.toLocaleString()}</span>
+                  <span className="text-xs text-[#5B6B67]">{thisMonthTotal === 0 ? 'אין הוצאות רשומות החודש' : `חשמל ₪${thisMonthElec.toLocaleString()} · אחר ₪${thisMonthOther.toLocaleString()}`}</span>
+                </button>
+              </section>
+
+              <div className="flex flex-wrap gap-4 items-stretch">
+                <section aria-label="גבייה מול הוצאות" className="flex-[3_1_460px] min-w-0 bg-white border border-[#E3E8E6] rounded-[18px] p-5 flex flex-col gap-4">
+                  <div className="flex flex-wrap justify-between items-center gap-2">
+                    <h2 className="text-lg font-bold">גבייה מול הוצאות — 12 חודשים</h2>
+                    <div className="flex gap-3.5 text-xs text-[#5B6B67]">
+                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-teal-700" />גבייה</span>
+                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-[#F0A35E]" />הוצאות</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-12 gap-1.5 md:gap-2 items-end h-[190px] border-b border-[#E3E8E6]">
+                    {chart.map(c => (
+                      <div key={`${c.month}-${c.year}`} className="flex gap-[3px] items-end justify-center h-full"
+                        title={`${c.month} ${c.year}: גבייה ₪${c.income.toLocaleString()}, הוצאות ₪${c.expense.toLocaleString()}`}>
+                        <div className="w-[40%] bg-teal-700 rounded-t" style={{ height: `${Math.round(c.income / chartMax * 100)}%` }} />
+                        <div className="w-[40%] bg-[#F0A35E] rounded-t" style={{ height: `${Math.round(c.expense / chartMax * 100)}%` }} />
                       </div>
-                      <span className="text-sm font-medium text-gray-500">הוצאות החודש</span>
-                    </div>
-                    <button onClick={() => { if (confirm('לאפס את הוצאות החודש? החל מעכשיו רק הוצאות חדשות שיתווספו יספרו.')) setSettings(s => ({ ...s, expensesResetAt: Date.now() })); }}
-                      className="text-gray-300 hover:text-orange-500 transition" title="איפוס הוצאות החודש">
-                      <RefreshCw size={14} />
-                    </button>
+                    ))}
                   </div>
-                  <p className="text-3xl font-bold text-orange-600 mb-3">₪{thisMonthTotal.toLocaleString()}</p>
-                  <div className="text-xs text-gray-400 space-y-1">
-                    {thisMonthElec > 0 && <div className="flex justify-between"><span>חשמל</span><span className="font-semibold">₪{thisMonthElec.toLocaleString()}</span></div>}
-                    {thisMonthOther > 0 && <div className="flex justify-between"><span>אחר</span><span className="font-semibold">₪{thisMonthOther.toLocaleString()}</span></div>}
-                    {thisMonthTotal === 0 && <span className="text-gray-300">אין הוצאות רשומות החודש</span>}
+                  <div className="grid grid-cols-12 gap-1.5 md:gap-2 text-[11px] md:text-xs text-[#5B6B67] text-center">
+                    {chart.map(c => <span key={`${c.month}-${c.year}`} className="truncate">{c.month}</span>)}
                   </div>
-                </div>
+                  <p className="text-xs text-[#5B6B67]">גבייה = מה ששולם עבור דמי הוועד של אותו חודש</p>
+                </section>
 
-                <div className="bg-white rounded-2xl border border-sky-100 shadow-sm p-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-sky-100">
-                      <Bell size={18} className="text-sky-500" />
-                    </div>
-                    <span className="text-sm font-medium text-gray-500">עדכונים</span>
-                  </div>
-                  <p className="text-3xl font-bold text-sky-600 mb-3">{unpaidThisMonth} דיירים</p>
-                  <div className="text-xs text-gray-400 space-y-1">
-                    <div className="flex justify-between"><span>לא שילמו החודש</span><span className="font-semibold text-red-400">{unpaidThisMonth}</span></div>
-                    <div className="flex justify-between"><span>בחוב כולל</span><span className="font-semibold text-red-400">{debtorsCount}</span></div>
-                    <div className="flex justify-between"><span>סה״כ חוב</span><span className="font-semibold text-red-400">₪{totalDebt.toLocaleString()}</span></div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-2xl border border-purple-100 shadow-sm p-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-purple-100">
-                      <Calendar size={18} className="text-purple-500" />
-                    </div>
-                    <span className="text-sm font-medium text-gray-500">הוצאות צפויות</span>
-                  </div>
-                  <p className="text-3xl font-bold text-purple-600 mb-3">₪{totalOpenExpenses.toLocaleString()}</p>
-                  <div className="text-xs text-gray-400 space-y-1">
-                    {openElec > 0 && <div className="flex justify-between"><span>חשמל</span><span className="font-semibold">₪{openElec.toLocaleString()}</span></div>}
-                    {openCleaning > 0 && <div className="flex justify-between"><span>ניקיון</span><span className="font-semibold">₪{openCleaning.toLocaleString()}</span></div>}
-                    {openRegular > 0 && <div className="flex justify-between"><span>הוצאות שוטפות</span><span className="font-semibold">₪{openRegular.toLocaleString()}</span></div>}
-                    {openExtraordinary > 0 && <div className="flex justify-between"><span>הוצאות חריגות</span><span className="font-semibold">₪{openExtraordinary.toLocaleString()}</span></div>}
-                    {totalOpenExpenses === 0 && <span className="text-gray-300">אין הוצאות פתוחות</span>}
-                  </div>
-                </div>
-
-                {(() => {
-                  const unpaidElec = (settings.electricityExpenses || []).filter(e => !e.paymentMethod).length;
-                  const totalElec = (settings.electricityExpenses || []).length;
-                  return (
-                    <div className={`bg-white rounded-2xl border shadow-sm p-5 col-span-2 ${unpaidElec > 0 ? 'border-red-100' : 'border-green-100'}`}>
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${unpaidElec > 0 ? 'bg-red-100' : 'bg-green-100'}`}>
-                          <Zap size={18} className={unpaidElec > 0 ? 'text-red-500' : 'text-green-600'} />
-                        </div>
-                        <span className="text-sm font-medium text-gray-500">חברת חשמל</span>
-                        <span className={`mr-auto text-xs font-bold px-2 py-0.5 rounded-full ${unpaidElec > 0 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>
-                          {unpaidElec > 0 ? `${unpaidElec} לא שולמו` : 'הכל שולם ✓'}
+                <section aria-label="דורש טיפול" className="flex-[2_1_300px] min-w-0 bg-white border border-[#E3E8E6] rounded-[18px] p-5 flex flex-col gap-2.5">
+                  <h2 className="text-lg font-bold">דורש טיפול</h2>
+                  {payers.length === 0 && unpaidElec.length === 0 && openOther === 0 && (
+                    <p className="text-sm text-[#5B6B67] py-4 text-center">הכל מעודכן ✓</p>
+                  )}
+                  {payers.slice(0, 5).map(({ t, total }) => {
+                    const owned = getOwnedApartments(t.id);
+                    const months = t.payments.filter(p => p.status === 'חוב' && p.amount - (p.paidAmount || 0) > 0).length;
+                    return (
+                      <button key={t.id} onClick={() => openTenant(t.id)} className="flex items-center gap-3 p-2.5 rounded-xl bg-[#F8FAF9] hover:bg-[#EEF3F1] text-right transition">
+                        <span className={`w-9 h-9 rounded-[10px] flex items-center justify-center font-extrabold text-sm shrink-0 ${owned.length ? 'bg-[#FDF3E3] text-[#A15C07]' : 'bg-[#FDECEA] text-[#B42318]'}`}>{t.apt}</span>
+                        <span className="flex flex-col flex-1 min-w-0">
+                          <span className="font-medium text-[15px] truncate">{t.name}</span>
+                          <span className="text-xs text-[#5B6B67] truncate">{owned.length ? `כולל דירות ${owned.map(a => a.apt).join(', ')}` : months ? `${months} חודשים פתוחים` : 'חיובים פתוחים'}</span>
                         </span>
-                      </div>
-                      <div className="flex gap-6 text-xs text-gray-400">
-                        <div className="flex justify-between gap-2"><span>סה"כ חשבוניות</span><span className="font-semibold text-gray-600">{totalElec}</span></div>
-                        <div className="flex justify-between gap-2"><span>שולמו</span><span className="font-semibold text-green-600">{totalElec - unpaidElec}</span></div>
-                        {unpaidElec > 0 && <div className="flex justify-between gap-2"><span>ממתינות לתשלום</span><span className="font-semibold text-red-500">{unpaidElec}</span></div>}
-                      </div>
-                    </div>
-                  );
-                })()}
-
+                        <span className="font-bold text-[15px] text-[#B42318]">₪{total.toLocaleString()}</span>
+                      </button>
+                    );
+                  })}
+                  {payers.length > 5 && (
+                    <button onClick={goList} className="text-sm text-teal-700 font-medium hover:underline text-right">ועוד {payers.length - 5} — לכל הדיירים</button>
+                  )}
+                  {unpaidElec.map(e => (
+                    <button key={e.id} onClick={() => setView('expenses')} className="flex items-center gap-3 p-2.5 rounded-xl bg-[#F8FAF9] hover:bg-[#EEF3F1] text-right transition">
+                      <span className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0 bg-[#E8EEF9] text-[#2453A6]"><Zap size={17} /></span>
+                      <span className="flex flex-col flex-1 min-w-0">
+                        <span className="font-medium text-[15px]">חשבונית חשמל</span>
+                        <span className="text-xs text-[#5B6B67] truncate">{e.fromMonth} {e.fromYear} · לא סומן אמצעי תשלום</span>
+                      </span>
+                      <span className="font-bold text-[15px] text-[#2453A6]">₪{(e.totalAmount || 0).toLocaleString()}</span>
+                    </button>
+                  ))}
+                  {openOther > 0 && (
+                    <button onClick={() => setView('expenses')} className="flex items-center gap-3 p-2.5 rounded-xl bg-[#F8FAF9] hover:bg-[#EEF3F1] text-right transition">
+                      <span className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0 bg-[#F1ECF9] text-[#6B3FA0]"><ReceiptText size={17} /></span>
+                      <span className="flex flex-col flex-1 min-w-0">
+                        <span className="font-medium text-[15px]">הוצאות שעוד לא שולמו</span>
+                        <span className="text-xs text-[#5B6B67]">ניקיון, שוטפות וחריגות</span>
+                      </span>
+                      <span className="font-bold text-[15px] text-[#6B3FA0]">₪{openOther.toLocaleString()}</span>
+                    </button>
+                  )}
+                </section>
               </div>
-            </>
+            </div>
           );
         })()}
 
-        {view === 'list' && (
-          <>
-            <header className="flex justify-between items-center mb-6">
-              <div>
-                <h2 className="text-xl font-bold text-gray-800">ניהול דיירים</h2>
-                <p className="text-sm text-gray-500">סה"כ חוב בבניין: <span className="font-bold text-red-600">₪{totalDebt.toLocaleString()}</span></p>
+        {view === 'list' && (() => {
+          const { month: curM, year: curY } = getCurrentHebrewDate();
+          const known = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17'];
+          const extra = [...new Set(tenants.map(t => String(t.apt)).filter(a => !known.includes(a)))];
+          const floors = [
+            ...(extra.length > 0 ? [{ label: 'נוספות', sub: `${extra.length} דירות`, apts: extra }] : []),
+            { label: 'קומה 5', sub: 'שכירות', apts: ['13','14','15','16','17'] },
+            { label: 'קומה 4', sub: '3 דירות', apts: ['10','11','12'] },
+            { label: 'קומה 3', sub: '3 דירות', apts: ['7','8','9'] },
+            { label: 'קומה 2', sub: '3 דירות', apts: ['4','5','6'] },
+            { label: 'קומה 1', sub: '3 דירות', apts: ['1','2','3'] },
+          ];
+          const paidNow = t => { const p = t.payments.find(x => x.hebrewMonth === curM && x.hebrewYear === curY); return !!p && (p.status === 'שולם' || p.status === 'זכות'); };
+          const paidCount = tenants.filter(paidNow).length;
+          const unpaidCount = tenants.length - paidCount;
+          const rentalCount = tenants.filter(t => t.ownerId).length;
+          const matches = t => buildingFilter === 'all' || (buildingFilter === 'unpaid' && !paidNow(t)) || (buildingFilter === 'rental' && !!t.ownerId);
+          const chip = active => `px-4 py-2 rounded-full text-sm border transition ${active ? 'bg-teal-700 border-teal-700 text-white font-bold' : 'bg-white border-[#CBD5D2] hover:border-teal-600'}`;
+          const secondary = 'flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-[#CBD5D2] bg-white hover:border-teal-600 text-sm font-medium transition';
+          return (
+            <div className="max-w-[1080px] flex flex-col gap-5">
+              <header className="flex flex-wrap justify-between items-end gap-4">
+                <div>
+                  <h1 className="text-[26px] md:text-[30px] font-extrabold leading-tight">הבניין</h1>
+                  <p className="text-[15px] text-[#5B6B67]">{curM} {curY} · {paidCount} מתוך {tenants.length} דירות שילמו · חוב כולל <b className="text-[#B42318]">₪{totalDebt.toLocaleString()}</b></p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => { setNewTenant(EMPTY_TENANT); setView('add'); }} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-sm font-bold transition"><Plus size={16} /> דייר חדש</button>
+                  <button onClick={openPaymentReminders} className={secondary}><Bell size={15} /> תזכורת לחייבים</button>
+                  <button onClick={() => setShowEmailModal(true)} className={secondary}><Mail size={15} /> הודעה לכולם</button>
+                  <button onClick={printTenantsStatusReport} className={secondary}><FileDown size={15} /> דוח מצב</button>
+                  <button onClick={() => printReminderSlips()} className={secondary}><FileDown size={15} /> פתקי תזכורת</button>
+                </div>
+              </header>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <div role="group" aria-label="סינון" className="flex flex-wrap gap-2">
+                  <button aria-pressed={buildingFilter === 'all'} onClick={() => setBuildingFilter('all')} className={chip(buildingFilter === 'all')}>הכל ({tenants.length})</button>
+                  <button aria-pressed={buildingFilter === 'unpaid'} onClick={() => setBuildingFilter('unpaid')} className={chip(buildingFilter === 'unpaid')}>לא שילמו ב{curM} ({unpaidCount})</button>
+                  <button aria-pressed={buildingFilter === 'rental'} onClick={() => setBuildingFilter('rental')} className={chip(buildingFilter === 'rental')}>שכירות ({rentalCount})</button>
+                </div>
+                <span className="flex-1" />
+                <span className="flex flex-wrap gap-3.5 text-xs text-[#5B6B67]">
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-[#E6F2F0] border border-teal-700" />מעודכן</span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-[#FDECEA] border border-[#B42318]" />בחוב</span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-white border-2 border-dashed border-[#A15C07]" />מושכרת</span>
+                </span>
               </div>
-              <div className="flex gap-2 flex-wrap justify-end">
-                <button onClick={openPaymentReminders} className="bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-1 transition disabled:opacity-50">
-                  <Bell size={15} /> תזכורת לחייבים
-                </button>
-                <button onClick={() => setShowEmailModal(true)} className="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-1 transition">
-                  <Mail size={15} /> שלח לכולם
-                </button>
-                <button onClick={() => { setNewTenant(EMPTY_TENANT); setView('add'); }} className="bg-teal-700 hover:bg-teal-600 text-white px-4 py-2 rounded-full text-sm font-bold flex items-center gap-1 transition">
-                  <Plus size={15} /> דייר חדש
-                </button>
-                <button onClick={printTenantsStatusReport} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 hover:border-teal-400 hover:text-teal-700 px-4 py-2 rounded-full text-sm font-medium shadow-sm transition">
-                  <FileDown size={15} /> הורד דוח מצב
-                </button>
-                <button onClick={() => printReminderSlips()} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 hover:border-teal-400 hover:text-teal-700 px-4 py-2 rounded-full text-sm font-medium shadow-sm transition">
-                  <FileDown size={15} /> פתקי תזכורת
-                </button>
-              </div>
-            </header>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
-              {[
-                { label: 'קומה 1', apts: ['1','2','3'], rental: false },
-                { label: 'קומה 2', apts: ['4','5','6'], rental: false },
-                { label: 'קומה 3', apts: ['7','8','9'], rental: false },
-                { label: 'קומה 4', apts: ['10','11','12'], rental: false },
-                { label: 'קומה 5 — שכירות', apts: ['13','14','15','16','17'], rental: true, full: true },
-              ].concat((() => {
-                // דירות שלא מופיעות באף קומה (למשל דייר חדש עם מספר דירה אחר) - שלא ייעלמו מהמסך
-                const known = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17'];
-                const extra = tenants.map(t => String(t.apt)).filter(a => !known.includes(a));
-                return extra.length > 0 ? [{ label: 'דירות נוספות', apts: [...new Set(extra)], rental: false, full: true }] : [];
-              })()).map(floor => {
-                const floorTenants = tenants.filter(t => floor.apts.includes(String(t.apt)));
-                return (
-                  <div key={floor.label} className={`rounded-2xl border p-4 ${floor.full ? 'sm:col-span-2 border-amber-200 bg-amber-50/30' : 'border-teal-100 bg-white'}`}>
-                    <h3 className={`text-xs font-bold mb-3 pb-1.5 border-b ${floor.rental ? 'text-amber-600 border-amber-200' : 'text-teal-700 border-teal-100'}`}>{floor.label}</h3>
-                    <div className={`grid gap-3 ${floor.full ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-3'}`}>
-                      {floorTenants.map(t => {
-                        const debt = unitDebt(t, tenants);
-                        const credit = calcCredit(t);
-                        const isRental = floor.rental;
-                        const ownedDebt = !t.ownerId ? getOwnedApartments(t.id).reduce((s, a) => s + unitDebt(a, tenants), 0) : 0;
-                        return (
-                          <div key={t.id} onClick={() => openTenant(t.id)}
-                            className={`p-4 rounded-2xl border text-center cursor-pointer hover:shadow-lg transition-all ${
-                              isRental
-                                ? debt > 0 ? 'bg-orange-50 border-orange-200' : 'bg-amber-50 border-amber-200'
-                                : debt > 0 ? 'bg-red-50 border-red-100' : 'bg-teal-50/60 border-teal-100'
-                            }`}>
-                            <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg text-white mx-auto mb-2 shadow-sm"
-                              style={{background: isRental ? 'linear-gradient(135deg, #d97706, #f59e0b)' : 'linear-gradient(135deg, #0d9488, #0ea5e9)'}}>
-                              {t.apt}
-                            </div>
-                            <p className="font-bold text-sm text-gray-800 leading-tight truncate">{t.name}</p>
-                            {isRental && getOwnerTenant(t) && (
-                              <p className="text-[11px] text-amber-700 leading-tight truncate">בעל הדירה: {getOwnerTenant(t).name}</p>
-                            )}
-                            {t.feePercent && Number(t.feePercent) !== 100 && (
-                              <span className="text-[10px] text-amber-600 font-medium bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full mt-1 inline-block">{t.feePercent}%</span>
-                            )}
-                            <div className="mt-1.5">
-                              {debt > 0 && (
-                                <div className="text-xs font-semibold text-red-500">₪{debt.toLocaleString()} חוב</div>
-                              )}
-                              {credit > 0 && (
-                                <div className="text-xs font-semibold text-green-600">₪{credit.toLocaleString()} זכות</div>
-                              )}
-                              {debt === 0 && credit === 0 && (
-                                <div className="text-xs font-semibold text-teal-500">מעודכן ✓</div>
-                              )}
-                              {ownedDebt > 0 && (
-                                <div className="text-[11px] text-amber-700 mt-0.5">+ ₪{ownedDebt.toLocaleString()} בדירות שלו</div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+
+              <section aria-label="מבט על הבניין" className="flex flex-col items-center">
+                <div aria-hidden="true" className="w-[94%] md:w-[92%] h-0 border-x-[28px] md:border-x-[40px] border-x-transparent border-b-[26px] md:border-b-[34px] border-b-[#0B3B37]" />
+                <div className="w-[94%] md:w-[92%] bg-white border-[3px] border-t-0 border-[#0B3B37] rounded-b-md flex flex-col">
+                  {floors.map(f => {
+                    const floorTenants = tenants.filter(t => f.apts.includes(String(t.apt))).sort((a, b) => Number(a.apt) - Number(b.apt));
+                    if (floorTenants.length === 0) return null;
+                    return (
+                      <div key={f.label} className="flex items-stretch border-b-2 border-[#E3E8E6]">
+                        <div className="w-11 md:w-[84px] shrink-0 flex flex-col items-center justify-center gap-0.5 bg-[#F8FAF9] border-l-2 border-[#E3E8E6] text-[11px] md:text-[13px] text-[#5B6B67] text-center px-1">
+                          <span className="font-bold text-[13px] md:text-[15px] text-[#17211F]">{f.label}</span>
+                          <span>{f.sub}</span>
+                        </div>
+                        <div className="flex-1 min-w-0 flex flex-wrap gap-1.5 md:gap-3 p-2 md:p-3.5">
+                          {floorTenants.map(t => {
+                            const rental = !!t.ownerId;
+                            const owner = rental ? getOwnerTenant(t) : null;
+                            const debt = unitDebt(t, tenants);
+                            const credit = calcCredit(t);
+                            const ownedDebt = !rental ? getOwnedApartments(t.id).reduce((s, a) => s + unitDebt(a, tenants), 0) : 0;
+                            const openMonths = t.payments.filter(p => p.status === 'חוב' && p.amount - (p.paidAmount || 0) > 0).length;
+                            const look = rental
+                              ? `border-2 border-dashed border-[#A15C07] ${debt > 0 ? 'bg-[#FFF8EE]' : 'bg-white'}`
+                              : debt > 0 ? 'border border-[#F2B8B2] bg-[#FDECEA]' : 'border border-[#9FD3CC] bg-[#E6F2F0]';
+                            const sub = rental
+                              ? `בעלים: ${owner?.name || '—'}${t.feePercent && Number(t.feePercent) !== 100 ? ` · ${t.feePercent}%` : ''}`
+                              : ownedDebt > 0 ? `+ ₪${ownedDebt.toLocaleString()} בדירות שלו`
+                              : credit > 0 ? `שולם מראש ₪${credit.toLocaleString()}`
+                              : debt > 0 ? (openMonths ? `${openMonths} חודשים פתוחים` : 'חיובים פתוחים') : 'מעודכן';
+                            return (
+                              <button key={t.id} onClick={() => openTenant(t.id)}
+                                className={`flex-[1_1_70px] md:flex-[1_1_120px] min-w-0 text-right rounded-xl p-2 md:p-3 min-h-[88px] flex flex-col gap-1 hover:shadow-md transition ${look} ${matches(t) ? '' : 'opacity-30'}`}>
+                                <span className="flex justify-between items-center gap-1">
+                                  <span className={`text-xl md:text-[22px] font-extrabold ${rental ? 'text-[#A15C07]' : debt > 0 ? 'text-[#B42318]' : 'text-teal-700'}`}>{t.apt}</span>
+                                  <span className={`text-[11px] md:text-xs font-bold px-1.5 md:px-2 py-0.5 rounded-full whitespace-nowrap ${debt > 0 ? 'bg-white text-[#B42318]' : 'bg-white text-teal-700'}`}>{debt > 0 ? `₪${debt.toLocaleString()}` : <><span className="hidden md:inline">מעודכן </span>✓</>}</span>
+                                </span>
+                                <span className="text-sm md:text-[15px] font-medium truncate">{rental ? `שוכר: ${t.vacant ? 'ריקה' : (t.name || '—')}` : t.name}</span>
+                                <span className="text-[11px] md:text-xs text-[#5B6B67] truncate">{sub}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div aria-hidden="true" className="flex justify-center pt-2.5">
+                    <div className="w-[70px] h-[44px] border-[3px] border-b-0 border-[#0B3B37] rounded-t-[10px] bg-[#E6F2F0]" />
                   </div>
-                );
-              })}
+                </div>
+                <div aria-hidden="true" className="w-full h-2 bg-[#CBD5D2] rounded" />
+              </section>
             </div>
-          </>
-        )}
+          );
+        })()}
 
         {view === 'tenant' && selectedTenant && (
-          <div className="max-w-5xl mx-auto">
-            <button onClick={goList} className="flex items-center text-teal-800 font-bold mb-5 hover:underline text-sm">
-              <ChevronRight size={18} /> חזרה לרשימת הדיירים
+          <div className="max-w-[1080px]">
+            <button onClick={goList} className="flex items-center gap-1 text-teal-700 font-medium mb-4 hover:underline text-sm">
+              <ChevronRight size={18} /> חזרה לבניין
             </button>
+            {(() => {
+              const isRentalUnit = !!selectedTenant.ownerId;
+              const owner = getOwnerTenant(selectedTenant);
+              const owned = isRentalUnit ? [] : [...getOwnedApartments(selectedTenant.id)].sort((a, b) => Number(a.apt) - Number(b.apt));
+              const ownDebt = unitDebt(selectedTenant, tenants);
+              const total = payerTotal(selectedTenant, tenants);
+              const split = isRentalUnit ? unitDebtSplit(selectedTenant) : null;
+              const credit = calcCredit(selectedTenant);
+              const prepStatement = () => {
+                const available = [...new Set(selectedTenant.payments.map(p => p.hebrewYear))]
+                  .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
+                setStatementYears(new Set(available));
+                setStatementMode('full');
+                setStatementOccupant('');
+                setIncludeOwnedApts(owned.length > 0);
+              };
+              const btn = 'flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-[#CBD5D2] bg-white hover:border-teal-600 hover:text-teal-800 text-sm font-medium transition';
+              const chipCls = 'px-2.5 py-1 rounded-full text-[13px]';
+              return (
+                <section aria-label="סיכום הדייר" className="bg-white rounded-[20px] border border-[#E3E8E6] p-5 md:p-6 mb-5">
+                  <div className="flex flex-wrap items-center gap-4 md:gap-6">
+                    <div className={`w-16 h-16 md:w-[72px] md:h-[72px] rounded-[20px] flex items-center justify-center text-white text-2xl md:text-[30px] font-extrabold shrink-0 ${isRentalUnit ? 'bg-[#A15C07]' : 'bg-teal-700'}`}>{selectedTenant.apt}</div>
+                    <div className="flex-[1_1_220px] min-w-0">
+                      <h1 className="text-2xl md:text-[28px] font-extrabold leading-tight truncate">{isRentalUnit ? `דירה ${selectedTenant.apt}` : (selectedTenant.name || `דירה ${selectedTenant.apt}`)}</h1>
+                      <p className="text-[15px] text-[#5B6B67] mt-1">
+                        {isRentalUnit
+                          ? <>שוכר: {selectedTenant.vacant ? 'הדירה ריקה' : (selectedTenant.name || '—')} · מול הוועד: <b className="text-[#A15C07]">{owner?.name || '—'}</b></>
+                          : <>דירה {selectedTenant.apt}{owned.length > 0 && <> · משכיר גם את דירות <b className="text-[#A15C07]">{owned.map(a => a.apt).join(', ')}</b></>}</>}
+                      </p>
+                      {(selectedTenant.phone || selectedTenant.email) && (
+                        <p className="text-sm text-[#5B6B67] mt-0.5 truncate">{[selectedTenant.phone, selectedTenant.email].filter(Boolean).join(' · ')}</p>
+                      )}
+                    </div>
+                    <div className="min-w-[200px]">
+                      <p className="text-sm text-[#5B6B67]">{owned.length > 0 ? 'סה״כ לתשלום (כולל הדירות שלו)' : 'יתרת חוב'}</p>
+                      <p className={`text-4xl md:text-[40px] font-extrabold leading-none my-1.5 ${total > 0 ? 'text-[#B42318]' : 'text-teal-700'}`}>₪{total.toLocaleString()}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {owned.length > 0 && <span className={`${chipCls} bg-[#F4F6F5]`}>שלו ₪{ownDebt.toLocaleString()}</span>}
+                        {owned.map(a => (
+                          <button key={a.id} onClick={() => openTenant(a.id)} className={`${chipCls} bg-[#FDF3E3] text-[#7A4505] hover:bg-[#FBE7C6]`}>דירה {a.apt} ₪{unitDebt(a, tenants).toLocaleString()}</button>
+                        ))}
+                        {split && split.total > 0 && <>
+                          <span className={`${chipCls} bg-[#F4F6F5]`}>לגבות מהשוכר ₪{split.occupant.toLocaleString()}</span>
+                          <span className={`${chipCls} bg-[#FDF3E3] text-[#7A4505]`}>על חשבון בעל הדירה ₪{split.owner.toLocaleString()}</span>
+                        </>}
+                        {credit > 0 && <span className={`${chipCls} bg-[#E6F2F0] text-teal-800`}>שולם מראש ₪{credit.toLocaleString()}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 border-t border-[#E3E8E6] pt-4 mt-5">
+                    <button onClick={() => openReceiptModal(selectedTenant)} disabled={editMode}
+                      title={editMode ? 'שמרי או בטלי את עריכת פרטי הדייר קודם' : ''}
+                      className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-sm font-bold transition disabled:opacity-40">
+                      <Banknote size={16} /> קבלת תשלום
+                    </button>
+                    {!isRentalUnit && (
+                      <button onClick={() => { prepStatement(); setTenantMsgText(''); setShowTenantMsg(true); }} className={btn}>
+                        <Mail size={15} /> הודעה
+                      </button>
+                    )}
+                    <button onClick={() => { prepStatement(); setShowStatementModal(selectedTenant); }} className={btn}>
+                      <FileText size={15} /> מסמך PDF
+                    </button>
+                    <button onClick={() => downloadOwnerExcel(selectedTenant)} className={btn}>
+                      <FileDown size={15} /> {isRentalUnit ? 'אקסל לבעל הדירה' : 'אקסל'}
+                    </button>
+                    <button onClick={() => printReminderSlips(selectedTenant)} className={btn}>
+                      <Bell size={15} /> {isRentalUnit ? 'פתק לבעל הדירה' : 'פתק תזכורת'}
+                    </button>
+                    <span className="flex-1" />
+                    {!editMode && (
+                      <button onClick={() => { startEdit(); setTimeout(() => document.getElementById('tenant-details')?.scrollIntoView({ behavior: 'smooth' }), 50); }}
+                        className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm text-[#5B6B67] hover:text-teal-800 hover:bg-[#F4F6F5] transition">
+                        <Pencil size={14} /> עריכת פרטים
+                      </button>
+                    )}
+                  </div>
+                </section>
+              );
+            })()}
             {selectedTenant.ownerId && getOwnerTenant(selectedTenant) && (() => {
               const owner = getOwnerTenant(selectedTenant);
               return (
-                <div className="mb-5 p-4 rounded-2xl border border-amber-200 bg-amber-50 flex flex-wrap items-center gap-x-4 gap-y-2">
-                  <span className="text-sm text-amber-900">
-                    <b>דירה מושכרת</b> · שוכר: {selectedTenant.vacant ? 'הדירה ריקה' : (selectedTenant.name || '—')} · מול הוועד: <b>{owner.name}</b> (בעל הדירה, דירה {owner.apt})
-                  </span>
+                <div className="mb-5 px-4 py-3 rounded-2xl border border-[#F1D9B5] bg-[#FFF8EE] flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <span className="text-sm font-bold text-[#7A4505]">דירה מושכרת</span>
                   <label className="flex items-center gap-1.5 text-xs text-amber-900">
                     דמי ועד חודשיים על חשבון:
                     <select value={selectedTenant.monthlyBillTo || 'occupant'}
@@ -2614,69 +2786,15 @@ export default function App() {
                 </div>
               );
             })()}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              <div className="md:col-span-2 space-y-5">
-                <div className="bg-white p-5 rounded-2xl border shadow-sm">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-bold text-base text-teal-800">פרטי דייר</h3>
-                    {!editMode
-                      ? <button onClick={startEdit} className="flex items-center gap-1 text-teal-600 hover:text-teal-700 text-sm"><Pencil size={14} /> ערוך</button>
-                      : <div className="flex gap-2">
-                          <button onClick={saveEdit} className="flex items-center gap-1 text-green-600 hover:text-green-800 text-sm"><Check size={14} /> שמור</button>
-                          <button onClick={() => setEditMode(false)} className="flex items-center gap-1 text-gray-500 hover:text-gray-700 text-sm"><X size={14} /> בטל</button>
-                        </div>}
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {[{label:'שם מלא',key:'name'},{label:'מספר דירה',key:'apt'},{label:'תעודת זהות',key:'idCard'},{label:'מייל',key:'email'},{label:'טלפון',key:'phone'},{label:'תאריך חיוב',key:'dueDate'},{label:'שכ"ד חודשי (₪)',key:'monthlyRent'}].map(({label,key}) => (
-                      <div key={key}>
-                        <label className="text-[10px] text-gray-400 block mb-1">{label}</label>
-                        <input
-                          readOnly={!editMode}
-                          value={editMode ? (editData[key] ?? '') : (selectedTenant[key] ?? '-')}
-                          onChange={e => setEditData(d => ({ ...d, [key]: e.target.value }))}
-                          className={`w-full p-2 rounded-lg border text-sm ${editMode ? 'bg-white border-teal-300 focus:outline-none focus:ring-1 focus:ring-teal-400' : 'bg-gray-50 border-gray-200'}`}
-                        />
-                      </div>
-                    ))}
-                    <div>
-                      <label className="text-[10px] text-gray-400 block mb-1">בעל הדירה</label>
-                      {editMode ? (
-                        <select
-                          value={editData.ownerId ?? ''}
-                          onChange={e => setEditData(d => ({ ...d, ownerId: e.target.value ? Number(e.target.value) : '' }))}
-                          className="w-full p-2 rounded-lg border bg-white border-teal-300 text-sm focus:outline-none focus:ring-1 focus:ring-teal-400">
-                          <option value="">— הדירה בבעלות הדייר עצמו —</option>
-                          {[...tenants].filter(t => t.id !== selectedTenant.id).sort((a,b) => Number(a.apt)-Number(b.apt)).map(t => (
-                            <option key={t.id} value={t.id}>דירה {t.apt} — {t.name}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input readOnly value={getOwnerTenant(selectedTenant)?.name || '-'}
-                          className="w-full p-2 rounded-lg border text-sm bg-gray-50 border-gray-200" />
-                      )}
-                    </div>
-                    {(editMode ? editData.ownerId : selectedTenant.ownerId) && (
-                      <div className="sm:col-span-2">
-                        <label className={`flex items-center gap-2 text-sm ${editMode ? 'cursor-pointer' : ''}`}>
-                          <input type="checkbox"
-                            disabled={!editMode}
-                            checked={editMode ? !!editData.vacant : !!selectedTenant.vacant}
-                            onChange={e => setEditData(d => ({ ...d, vacant: e.target.checked }))}
-                            className="w-4 h-4 accent-amber-600" />
-                          <span className={selectedTenant.vacant ? 'text-amber-700 font-medium' : 'text-gray-500'}>הדירה עומדת ריקה כרגע</span>
-                        </label>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="bg-white p-5 rounded-2xl border shadow-sm">
+            <div className="space-y-5">
+                <div className="bg-white p-5 rounded-[20px] border border-[#E3E8E6]">
                   <div className="flex justify-between items-center mb-4 gap-3">
-                    <h4 className="font-bold text-base text-teal-800">תשלומים שוטפים</h4>
-                    <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400">
+                    <h4 className="font-bold text-base text-teal-800">דמי ועד לפי חודש</h4>
+                    <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setOpenMonth(null); }} aria-label="שנה" className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-teal-400">
                       {HEBREW_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                   </div>
+                  {editMode ? (
                   <div className="overflow-x-auto">
                   <table className="w-full text-sm text-right">
                     <thead><tr className="border-b text-gray-400 text-xs">
@@ -2818,6 +2936,97 @@ export default function App() {
                     </tbody>
                   </table>
                   </div>
+                  ) : (() => {
+                    const yearMonths = monthsForYear(filterYear);
+                    const rowOf = m => selectedTenant.payments.find(x => x.hebrewMonth === m && x.hebrewYear === filterYear);
+                    const tileState = (p, m) => {
+                      if (!p) return isFutureMonth(m, filterYear)
+                        ? { cls: 'bg-white border border-dashed border-[#CBD5D2]', fg: 'text-[#5B6B67]', label: 'עתידי' }
+                        : { cls: 'bg-[#F8FAF9] border border-dashed border-[#CBD5D2]', fg: 'text-[#5B6B67]', label: 'לא נרשם' };
+                      const rem = p.amount - (p.paidAmount || 0);
+                      if (p.status === 'שולם') return { cls: 'bg-[#E6F2F0] border border-[#9FD3CC]', fg: 'text-teal-800', label: 'שולם ✓' };
+                      if (p.status === 'זכות') return rem <= 0
+                        ? { cls: 'bg-[#E6F2F0] border border-[#9FD3CC]', fg: 'text-teal-800', label: 'שולם מראש ✓' }
+                        : { cls: 'bg-[#FFF8EE] border border-[#F1D9B5]', fg: 'text-[#7A4505]', label: `מראש · חסר ₪${rem.toLocaleString()}` };
+                      return (p.paidAmount || 0) > 0
+                        ? { cls: 'bg-[#FDECEA] border border-[#F2B8B2]', fg: 'text-[#B42318]', label: `חלקי · נותר ₪${rem.toLocaleString()}` }
+                        : { cls: 'bg-[#FDECEA] border border-[#F2B8B2]', fg: 'text-[#B42318]', label: `חוב ₪${p.amount.toLocaleString()}` };
+                    };
+                    const sel = openMonth && yearMonths.includes(openMonth) ? openMonth : null;
+                    const p = sel ? rowOf(sel) : null;
+                    const updateRow = patch => setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, payments: t.payments.map(x => x.id !== p.id ? x : { ...x, ...patch }) }));
+                    const field = 'border border-[#CBD5D2] rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500';
+                    return (
+                      <>
+                        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 md:gap-2.5">
+                          {yearMonths.map(m => {
+                            const st = tileState(rowOf(m), m);
+                            const active = sel === m;
+                            return (
+                              <button key={m} type="button" onClick={() => setOpenMonth(active ? null : m)} aria-expanded={active}
+                                className={`text-right rounded-[14px] p-2.5 md:p-3 min-h-[64px] transition hover:shadow-sm ${st.cls} ${active ? 'ring-2 ring-teal-600 ring-offset-1' : ''}`}>
+                                <span className="block text-sm font-bold">{m}</span>
+                                <span className={`block text-xs md:text-[13px] font-medium ${st.fg}`}>{st.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <p className="text-xs text-[#5B6B67] mt-2">לחיצה על חודש פותחת אותו לעדכון</p>
+                        {sel && (
+                          <div className="mt-3 rounded-2xl border border-[#E3E8E6] bg-[#F8FAF9] p-4">
+                            <div className="flex justify-between items-center mb-3">
+                              <span className="font-bold">{sel} {filterYear}</span>
+                              <button onClick={() => setOpenMonth(null)} aria-label="סגירה" className="text-[#5B6B67] hover:text-[#17211F]"><X size={18} /></button>
+                            </div>
+                            {!p ? (
+                              <div className="flex flex-wrap items-center gap-3">
+                                <span className="text-sm text-[#5B6B67]">{isFutureMonth(sel, filterYear) ? 'חודש עתידי — אפשר לרשום תשלום מראש' : 'לא נרשם חיוב לחודש הזה'}</span>
+                                <button onClick={() => addPaymentDirect(sel, filterYear)} className="px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-sm font-bold transition">+ הוסף חודש</button>
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
+                                <div>
+                                  <span className="block text-xs text-[#5B6B67] mb-1">לתשלום</span>
+                                  <span className="text-lg font-bold">₪{p.amount.toLocaleString()}</span>
+                                </div>
+                                <label className="block">
+                                  <span className="block text-xs text-[#5B6B67] mb-1">שולם</span>
+                                  {p.status === 'שולם'
+                                    ? <span className="text-lg font-bold text-teal-700">₪{(p.paidAmount || p.amount).toLocaleString()} ✓</span>
+                                    : <input type="number" min={0} value={p.paidAmount || 0} onFocus={e => e.target.select()}
+                                        onChange={e => updatePaymentPaid(p.id, e.target.value)} className={`${field} w-24`} />}
+                                </label>
+                                <label className="block">
+                                  <span className="block text-xs text-[#5B6B67] mb-1">שוכר באותו חודש</span>
+                                  <input value={p.occupantName ?? selectedTenant.name ?? ''} onChange={e => updateRow({ occupantName: e.target.value })} className={`${field} w-32`} />
+                                </label>
+                                <label className="block flex-[1_1_160px]">
+                                  <span className="block text-xs text-[#5B6B67] mb-1">הערה</span>
+                                  <input value={p.note || ''} onChange={e => updateRow({ note: e.target.value })} placeholder="הערה..." className={`${field} w-full`} />
+                                </label>
+                                <div className="flex flex-wrap gap-2">
+                                  {p.status !== 'שולם' && !(p.status === 'זכות' && p.amount - (p.paidAmount || 0) <= 0) && (
+                                    <button onClick={() => togglePayment(p.id)} className="px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-sm font-bold transition">שולם מלא</button>
+                                  )}
+                                  {p.status === 'שולם' && (
+                                    <button onClick={() => togglePayment(p.id)} className="px-4 py-2 rounded-xl border border-[#CBD5D2] bg-white hover:border-[#B42318] hover:text-[#B42318] text-sm transition">ביטול התשלום</button>
+                                  )}
+                                  {p.status === 'זכות' && (
+                                    <button onClick={() => updateRow({ status: 'חוב', paidAmount: 0 })} className="px-4 py-2 rounded-xl border border-[#CBD5D2] bg-white hover:border-[#B42318] hover:text-[#B42318] text-sm transition">ביטול התשלום מראש</button>
+                                  )}
+                                  <button onClick={() => {
+                                    if (!confirm(`למחוק את שורת התשלום של ${sel} ${filterYear}?`)) return;
+                                    setTenants(prev => prev.map(t => t.id !== selectedId ? t : { ...t, payments: t.payments.filter(x => x.id !== p.id) }));
+                                    setOpenMonth(null);
+                                  }} aria-label="מחיקת החודש" className="px-3 py-2 rounded-xl text-[#5B6B67] hover:text-[#B42318] hover:bg-[#FDECEA] transition"><Trash2 size={16} /></button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {!selectedTenant.ownerId && getOwnedApartments(selectedTenant.id).length > 0 && (() => {
@@ -2889,7 +3098,7 @@ export default function App() {
                   if (list.length === 0) return null;
                   list.sort((a, b) => b.r.id - a.r.id);
                   return (
-                    <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                    <div className="bg-white p-5 rounded-[20px] border border-[#E3E8E6]">
                       <h4 className="font-bold text-base text-teal-800 mb-4">קבלות תשלום</h4>
                       <div className="space-y-2">
                         {list.map(({ r, storedOn, via, allocations, shown }) => {
@@ -2920,7 +3129,7 @@ export default function App() {
                 })()}
 
                 {/* חיובים חד-פעמיים */}
-                <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                <div className="bg-white p-5 rounded-[20px] border border-[#E3E8E6]">
                   <div className="flex justify-between items-center mb-4">
                     <h4 className="font-bold text-base text-teal-800">חיובים נוספים / חד-פעמיים</h4>
                     <button onClick={() => {
@@ -2987,7 +3196,7 @@ export default function App() {
                 </div>
 
                 {settings.extraordinaryExpenses && settings.extraordinaryExpenses.length > 0 && (
-                  <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                  <div className="bg-white p-5 rounded-[20px] border border-[#E3E8E6]">
                     <h4 className="font-bold text-base text-teal-800 mb-4">הוצאות חריגות</h4>
 
                     {unitCharges(selectedTenant, tenants).filter(({ c }) => c.expenseId).length > 0 && (
@@ -3057,7 +3266,7 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                <div className="bg-white p-5 rounded-[20px] border border-[#E3E8E6]">
                   <h4 className="font-bold text-base text-teal-800 mb-3">הערות</h4>
                   <textarea
                     value={selectedTenant.notes || ''}
@@ -3068,39 +3277,64 @@ export default function App() {
                     dir="rtl"
                   />
                 </div>
-              </div>
-
-              <div className="space-y-5">
-                {(() => {
-                  const isRentalUnit = !!selectedTenant.ownerId;
-                  const owned = isRentalUnit ? [] : [...getOwnedApartments(selectedTenant.id)].sort((a, b) => Number(a.apt) - Number(b.apt));
-                  const ownDebt = unitDebt(selectedTenant, tenants);
-                  const total = payerTotal(selectedTenant, tenants);
-                  const split = isRentalUnit ? unitDebtSplit(selectedTenant) : null;
-                  return (
-                    <div className="bg-white p-5 rounded-2xl border shadow-sm text-center">
-                      <p className="text-gray-500 text-sm font-medium">{owned.length > 0 ? 'סה״כ לתשלום (כולל הדירות שלו)' : 'סך יתרת חוב'}</p>
-                      <p className={`text-4xl font-bold my-2 ${total>0?'text-red-600':'text-green-600'}`}>₪{total.toLocaleString()}</p>
-                      {selectedTenant.vacant && <p className="text-xs font-medium text-amber-600 -mt-1 mb-1">הדירה עומדת ריקה</p>}
-                      {owned.length > 0 && (
-                        <div className="text-xs text-gray-500 space-y-1 border-t pt-2 mt-1 mb-2 text-right">
-                          <div className="flex justify-between"><span>הדירה שלו ({selectedTenant.apt})</span><span className="font-semibold">₪{ownDebt.toLocaleString()}</span></div>
-                          {owned.map(a => (
-                            <div key={a.id} className="flex justify-between"><span>דירה {a.apt}{a.name && !a.vacant ? ` (${a.name})` : ''}</span><span className="font-semibold">₪{unitDebt(a, tenants).toLocaleString()}</span></div>
+                <div id="tenant-details" className="bg-white p-5 rounded-[20px] border border-[#E3E8E6] scroll-mt-6">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-base text-teal-800">פרטי דייר</h3>
+                    {!editMode
+                      ? <button onClick={startEdit} className="flex items-center gap-1 text-teal-600 hover:text-teal-700 text-sm"><Pencil size={14} /> ערוך</button>
+                      : <div className="flex gap-2">
+                          <button onClick={saveEdit} className="flex items-center gap-1 text-green-600 hover:text-green-800 text-sm"><Check size={14} /> שמור</button>
+                          <button onClick={() => setEditMode(false)} className="flex items-center gap-1 text-gray-500 hover:text-gray-700 text-sm"><X size={14} /> בטל</button>
+                        </div>}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {[{label:'שם מלא',key:'name'},{label:'מספר דירה',key:'apt'},{label:'תעודת זהות',key:'idCard'},{label:'מייל',key:'email'},{label:'טלפון',key:'phone'},{label:'תאריך חיוב',key:'dueDate'},{label:'שכ"ד חודשי (₪)',key:'monthlyRent'}].map(({label,key}) => (
+                      <div key={key}>
+                        <label className="text-[10px] text-gray-400 block mb-1">{label}</label>
+                        <input
+                          readOnly={!editMode}
+                          value={editMode ? (editData[key] ?? '') : (selectedTenant[key] ?? '-')}
+                          onChange={e => setEditData(d => ({ ...d, [key]: e.target.value }))}
+                          className={`w-full p-2 rounded-lg border text-sm ${editMode ? 'bg-white border-teal-300 focus:outline-none focus:ring-1 focus:ring-teal-400' : 'bg-gray-50 border-gray-200'}`}
+                        />
+                      </div>
+                    ))}
+                    <div>
+                      <label className="text-[10px] text-gray-400 block mb-1">בעל הדירה</label>
+                      {editMode ? (
+                        <select
+                          value={editData.ownerId ?? ''}
+                          onChange={e => setEditData(d => ({ ...d, ownerId: e.target.value ? Number(e.target.value) : '' }))}
+                          className="w-full p-2 rounded-lg border bg-white border-teal-300 text-sm focus:outline-none focus:ring-1 focus:ring-teal-400">
+                          <option value="">— הדירה בבעלות הדייר עצמו —</option>
+                          {[...tenants].filter(t => t.id !== selectedTenant.id).sort((a,b) => Number(a.apt)-Number(b.apt)).map(t => (
+                            <option key={t.id} value={t.id}>דירה {t.apt} — {t.name}</option>
                           ))}
-                        </div>
+                        </select>
+                      ) : (
+                        <input readOnly value={getOwnerTenant(selectedTenant)?.name || '-'}
+                          className="w-full p-2 rounded-lg border text-sm bg-gray-50 border-gray-200" />
                       )}
-                      {split && split.total > 0 && (
-                        <div className="text-xs text-gray-500 space-y-1 border-t pt-2 mt-1 mb-2 text-right">
-                          <div className="flex justify-between"><span>לגבות מהשוכר</span><span className="font-semibold">₪{split.occupant.toLocaleString()}</span></div>
-                          <div className="flex justify-between"><span>על חשבון בעל הדירה</span><span className="font-semibold">₪{split.owner.toLocaleString()}</span></div>
-                          <div className="text-amber-700 pt-1">נגבה דרך {getOwnerTenant(selectedTenant)?.name}</div>
-                        </div>
-                      )}
-                      <div className="w-14 h-14 bg-teal-50 rounded-full flex items-center justify-center text-xl font-bold text-teal-800 mx-auto">{selectedTenant.apt}</div>
                     </div>
-                  );
-                })()}
+                    {(editMode ? editData.ownerId : selectedTenant.ownerId) && (
+                      <div className="sm:col-span-2">
+                        <label className={`flex items-center gap-2 text-sm ${editMode ? 'cursor-pointer' : ''}`}>
+                          <input type="checkbox"
+                            disabled={!editMode}
+                            checked={editMode ? !!editData.vacant : !!selectedTenant.vacant}
+                            onChange={e => setEditData(d => ({ ...d, vacant: e.target.checked }))}
+                            className="w-4 h-4 accent-amber-600" />
+                          <span className={selectedTenant.vacant ? 'text-amber-700 font-medium' : 'text-gray-500'}>הדירה עומדת ריקה כרגע</span>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex justify-end border-t border-[#E3E8E6] mt-5 pt-4">
+                    <button onClick={() => deleteTenant(selectedTenant.id)} className="flex items-center gap-1.5 text-sm text-[#B42318] hover:bg-[#FDECEA] px-3 py-2 rounded-lg transition">
+                      <Trash2 size={14} /> מחיקת דייר
+                    </button>
+                  </div>
+                </div>
 
                 {(() => {
                   const { month: curM, year: curY } = getCurrentHebrewDate();
@@ -3108,7 +3342,7 @@ export default function App() {
                   const pct = Number(selectedTenant.feePercent || 100);
                   const effective = Math.round(baseFee * pct / 100);
                   return (
-                    <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                    <div className="bg-white p-5 rounded-[20px] border border-[#E3E8E6]">
                       <h4 className="font-bold text-sm text-teal-800 mb-3">תעריף גבייה</h4>
                       <div className="space-y-2.5 text-sm">
                         <div className="flex justify-between items-center">
@@ -3153,48 +3387,7 @@ export default function App() {
                   );
                 })()}
 
-                <div className="bg-white p-5 rounded-2xl border shadow-sm space-y-2">
-                  <h4 className="font-bold text-base text-teal-800 mb-3">פעולות</h4>
-                  <button onClick={() => openReceiptModal(selectedTenant)} disabled={editMode}
-                    title={editMode ? 'שמרי או בטלי את עריכת פרטי הדייר קודם' : ''}
-                    className="w-full bg-teal-700 hover:bg-teal-600 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1 disabled:opacity-40">
-                    <Banknote size={15} /> קבלת תשלום
-                  </button>
-                  <button onClick={() => {
-                    const available = [...new Set(selectedTenant.payments.map(p => p.hebrewYear))]
-                      .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
-                    setStatementYears(new Set(available));
-                    setStatementMode('full');
-                    setStatementOccupant('');
-                    setIncludeOwnedApts(getOwnedApartments(selectedTenant.id).length > 0);
-                    setShowStatementModal(selectedTenant);
-                  }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
-                    <FileText size={14} /> הורד מסמך
-                  </button>
-                  <button onClick={() => downloadOwnerExcel(selectedTenant)} className="w-full bg-green-700 hover:bg-green-600 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
-                    <FileDown size={14} /> {selectedTenant.ownerId ? 'הורד אקסל לבעל הדירה' : 'הורד אקסל'}
-                  </button>
-                  <button onClick={() => printReminderSlips(selectedTenant)} className="w-full border border-gray-200 text-gray-600 hover:border-teal-400 hover:text-teal-700 py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
-                    <Bell size={14} /> {selectedTenant.ownerId ? 'הדפס פתק לבעל הדירה' : 'הדפס פתק תזכורת'}
-                  </button>
-                  {!selectedTenant.ownerId && <button onClick={() => {
-                    const available = [...new Set(selectedTenant.payments.map(p => p.hebrewYear))]
-                      .sort((a, b) => (HEBREW_YEAR_TO_NUMERIC[b] || 0) - (HEBREW_YEAR_TO_NUMERIC[a] || 0));
-                    setStatementYears(new Set(available));
-                    setStatementMode('full');
-                    setStatementOccupant('');
-                    setIncludeOwnedApts(getOwnedApartments(selectedTenant.id).length > 0);
-                    setTenantMsgText('');
-                    setShowTenantMsg(true);
-                  }} className="w-full bg-sky-600 hover:bg-sky-700 text-white py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
-                    <MessageSquare size={14} /> שלח הודעה
-                  </button>}
-                  <button onClick={() => deleteTenant(selectedTenant.id)} className="w-full border border-red-200 text-red-500 hover:bg-red-50 py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1">
-                    <Trash2 size={14} /> מחק דייר
-                  </button>
-                </div>
               </div>
-            </div>
           </div>
         )}
 
@@ -3203,7 +3396,7 @@ export default function App() {
             <button onClick={goList} className="flex items-center text-teal-800 font-bold mb-5 hover:underline text-sm">
               <ChevronRight size={18} /> חזרה
             </button>
-            <div className="bg-white p-6 rounded-2xl border shadow-sm">
+            <div className="bg-white p-6 rounded-[20px] border border-[#E3E8E6]">
               <h3 className="font-bold text-base text-teal-800 mb-5">הוספת דייר חדש</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {[{label:'שם מלא',key:'name'},{label:'מספר דירה',key:'apt'},{label:'תעודת זהות',key:'idCard'},{label:'מייל',key:'email'},{label:'טלפון',key:'phone'},{label:'תאריך חיוב',key:'dueDate'},{label:'שכ"ד חודשי (₪)',key:'monthlyRent'}].map(({label,key}) => (
@@ -3259,7 +3452,7 @@ export default function App() {
                     <Plus size={14} /> {key === 'electricityExpenses' ? 'הוסף חשבונית' : 'הוסף הוצאה'}
                   </button>
                 </div>
-                <div className="bg-white rounded-2xl border shadow-sm overflow-visible">
+                <div className="bg-white rounded-[20px] border border-[#E3E8E6] overflow-visible">
                   {(!settings[key] || settings[key].length === 0)
                     ? <p className="text-center text-gray-400 text-sm py-14">{key === 'electricityExpenses' ? 'אין חשבוניות חשמל.' : `אין הוצאות ${label}.`} לחצי על הכפתור כדי להתחיל.</p>
                     : key === 'electricityExpenses'
@@ -3511,7 +3704,7 @@ export default function App() {
 
             <div className="space-y-5">
               {/* גיבוי נתונים */}
-              <div className="bg-white p-6 rounded-2xl border shadow-sm">
+              <div className="bg-white p-6 rounded-[20px] border border-[#E3E8E6]">
                 <h3 className="font-bold text-base text-teal-800 mb-2">גיבוי נתונים</h3>
                 <p className="text-sm text-gray-500 mb-4">מוריד קובץ עם כל נתוני הדיירים (תשלומים, חיובים, הערות) וההגדרות (תעריפים, הוצאות חריגות) כפי שהם עכשיו. שווה להוריד מדי פעם כגיבוי אישי אצלך במחשב.</p>
                 <button onClick={exportBackup} className={`flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold transition ${backupExported ? 'bg-green-600 text-white' : 'bg-teal-700 hover:bg-teal-600 text-white'}`}>
@@ -3520,7 +3713,7 @@ export default function App() {
               </div>
 
               {/* Logo */}
-              <div className="bg-white p-6 rounded-2xl border shadow-sm">
+              <div className="bg-white p-6 rounded-[20px] border border-[#E3E8E6]">
                 <h3 className="font-bold text-base text-teal-800 mb-4">לוגו הבניין</h3>
                 <div className="flex items-center gap-6">
                   <div className="w-28 h-28 rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden bg-gray-50 shrink-0">
@@ -3546,7 +3739,7 @@ export default function App() {
               </div>
 
               {/* Building info */}
-              <div className="bg-white p-6 rounded-2xl border shadow-sm">
+              <div className="bg-white p-6 rounded-[20px] border border-[#E3E8E6]">
                 <h3 className="font-bold text-base text-teal-800 mb-4">פרטי הבניין</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[{label:'שם הבניין / ועד',key:'buildingName'},{label:'כתובת',key:'address'}].map(({label,key}) => (
@@ -3560,7 +3753,7 @@ export default function App() {
               </div>
 
               {/* Managers */}
-              <div className="bg-white p-6 rounded-2xl border shadow-sm">
+              <div className="bg-white p-6 rounded-[20px] border border-[#E3E8E6]">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="font-bold text-base text-teal-800">חברי ועד הבית</h3>
                   <button onClick={() => setSettingsData(d => ({ ...d, managers: [...d.managers, { id: Date.now(), name: '', phone: '', email: '', role: '' }] }))}
@@ -3592,7 +3785,7 @@ export default function App() {
               </div>
 
               {/* Fee history */}
-              <div className="bg-white p-6 rounded-2xl border shadow-sm">
+              <div className="bg-white p-6 rounded-[20px] border border-[#E3E8E6]">
                 <div className="flex justify-between items-center mb-4">
                   <div>
                     <h3 className="font-bold text-base text-teal-800">היסטוריית סכום גבייה</h3>
@@ -3666,7 +3859,7 @@ export default function App() {
 
               {/* הגדרות EmailJS - הוסתרו: המיילים נפתחים עכשיו ב-Gmail. ההגדרות הישנות נשמרות בנתונים ולא נמחקו */}
               {false && (<>
-              <div className="bg-white p-6 rounded-2xl border shadow-sm">
+              <div className="bg-white p-6 rounded-[20px] border border-[#E3E8E6]">
                 <h3 className="font-bold text-base text-teal-800 mb-1">הגדרות מייל</h3>
                 <p className="text-xs text-gray-400 mb-4">פרטי EmailJS לשליחת מיילים מהמערכת</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -3693,7 +3886,7 @@ export default function App() {
               </>)}
 
               {/* Templates */}
-              <div className="bg-white p-6 rounded-2xl border shadow-sm">
+              <div className="bg-white p-6 rounded-[20px] border border-[#E3E8E6]">
                 <div className="flex justify-between items-center mb-1">
                   <h3 className="font-bold text-base text-teal-800">תבניות הודעות</h3>
                   <button onClick={() => setSettingsData(d => ({ ...d, templates: [...d.templates, { id: Date.now(), name: 'תבנית חדשה', body: '' }] }))}
